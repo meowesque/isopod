@@ -131,31 +131,23 @@ impl DirectoryEntry {
 
   /// Write the directory entry to a buffer
   pub fn write_to_buffer(&self, buffer: &mut [u8]) -> Result<()> {
-    // Start with the base record length (33) + file ID length
-    let file_id_bytes = self.iso_file_identifier();
-    let file_id_length = file_id_bytes.len();
-    let record_length = 33 + file_id_length;
-
-    // Pad to even length if needed
-    let padded_length = if record_length % 2 == 1 {
-      record_length + 1
-    } else {
-      record_length
-    };
-
-    if buffer.len() < padded_length {
-      return Err(Error::InvalidFormat(format!(
-        "Buffer too small for directory entry: need {} bytes, got {}",
-        padded_length,
-        buffer.len()
-      )));
+    // Ensure buffer is at least 40 bytes
+    if buffer.len() < 40 {
+        return Err(Error::InvalidFormat(format!(
+            "Buffer too small for directory entry: need at least 40 bytes, got {} bytes",
+            buffer.len()
+        )));
     }
 
-    // Clear the buffer
-    buffer[0..padded_length].fill(0);
+    // Clear the entire buffer to ensure consistent initialization
+    buffer.fill(0);
 
-    // Record length
-    buffer[0] = padded_length as u8;
+    // File ID calculation
+    let file_id_bytes = self.iso_file_identifier();
+    let file_id_length = file_id_bytes.len();
+
+    // Record length (using fixed 40-byte format)
+    buffer[0] = 40;
 
     // Extended attribute record length
     buffer[1] = 0;
@@ -166,27 +158,30 @@ impl DirectoryEntry {
     // Data length (both little and big endian)
     utils::write_u32_both(&mut buffer[10..18], self.extent_size);
 
-    // Recording date/time
+    // Recording date/time (7 bytes)
     utils::write_recording_date(&mut buffer[18..25], self.recording_time);
 
     // File flags
     buffer[25] = self.flags;
 
-    // File unit size and interleave
+    // File unit size and interleave gap
     buffer[26] = 0; // File unit size
-    buffer[27] = 0; // Interleave gap
+    buffer[27] = 0; // Interleave gap size
 
-    // Volume sequence number
+    // Volume sequence number (both little and big endian)
     utils::write_u16_both(&mut buffer[28..32], 1);
 
     // File identifier length
     buffer[32] = file_id_length as u8;
 
     // File identifier
-    buffer[33..33 + file_id_length].copy_from_slice(&file_id_bytes);
+    let id_start = 33;
+    let id_end = id_start + file_id_length;
+    buffer[id_start..id_end].copy_from_slice(&file_id_bytes);
 
+    // Pad with zeros to ensure 40-byte entry
     Ok(())
-  }
+}
 
   /// Get the name
   pub fn name(&self) -> &str {
@@ -240,49 +235,43 @@ impl DirectoryEntry {
 
   /// Calculate the record size of this entry
   pub fn record_size(&self) -> usize {
-    let file_id_length = self.iso_file_identifier().len();
-    let record_length = 33 + file_id_length;
-
-    // Pad to even length if needed
-    if record_length % 2 == 1 {
-      record_length + 1
-    } else {
-      record_length
+    // Always return 40 to match the fixed-size entry requirement
+    40
     }
-  }
 
   /// Get the ISO file identifier
   fn iso_file_identifier(&self) -> Vec<u8> {
+    // Special handling for directory entries
     if self.is_directory() {
-      if self.name == "." {
-        return vec![0];
-      } else if self.name == ".." {
-        return vec![1];
-      }
-    }
-
-    // Sanitize the name for ISO 9660 compliance (allow only A-Z, 0-9, _)
-    let sanitized_name = self
-      .name
-      .chars()
-      .map(|c| {
-        if c.is_ascii_alphanumeric() || c == '_' || c == '.' {
-          c.to_ascii_uppercase()
-        } else {
-          '_'
+        if self.name == "." {
+            return vec![0];
+        } else if self.name == ".." {
+            return vec![1];
         }
-      })
-      .collect::<String>();
-
-    // For files, append ";1" version
-    if !self.is_directory() {
-      let mut file_id = sanitized_name.as_bytes().to_vec();
-      file_id.extend_from_slice(b";1");
-      file_id
-    } else {
-      sanitized_name.as_bytes().to_vec()
     }
-  }
+
+    // Sanitize the name for ISO 9660 compliance
+    let sanitized_name = self
+        .name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '.' {
+                c.to_ascii_uppercase()
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+
+        // For files, append ";1" version
+        if !self.is_directory() {
+            let mut file_id = sanitized_name.as_bytes().to_vec();
+            file_id.extend_from_slice(b";1");
+            file_id
+        } else {
+            sanitized_name.as_bytes().to_vec()
+        }
+    }
 }
 
 /// Represents a directory in the ISO 9660 filesystem
@@ -648,52 +637,59 @@ impl Directory {
 
   /// Write the directory record to a writer
   fn write_directory_record<W: Write>(&self, writer: &mut W) -> Result<()> {
-    // Create directory record with . and .. entries
-    let mut buffer = Vec::new();
+    // Prepare buffer for directory entries
+    let mut buffer = Vec::with_capacity(SECTOR_SIZE);
+
+    // 40-byte buffer for directory entries
+    let mut entry_buffer = vec![0u8; 40];
 
     // "." entry (current directory)
     let dot_entry = self.create_dot_entry();
-    let mut entry_buffer = vec![0u8; dot_entry.record_size()];
-    dot_entry.write_to_buffer(&mut entry_buffer)?;
+    entry_buffer.fill(0);
+    dot_entry.write_to_buffer(&mut entry_buffer)
+        .map_err(|e| Error::InvalidFormat(format!("Failed to write '.' entry: {}", e)))?;
     buffer.extend_from_slice(&entry_buffer);
 
     // ".." entry (parent directory)
     let dotdot_entry = self.create_dotdot_entry();
-    let mut entry_buffer = vec![0u8; dotdot_entry.record_size()];
-    dotdot_entry.write_to_buffer(&mut entry_buffer)?;
+    entry_buffer.fill(0);
+    dotdot_entry.write_to_buffer(&mut entry_buffer)
+        .map_err(|e| Error::InvalidFormat(format!("Failed to write '..' entry: {}", e)))?;
     buffer.extend_from_slice(&entry_buffer);
 
     // Add entries for subdirectories
     for dir in self.directories.values() {
-      if let (Some(location), Some(size)) = (dir.sector_location, dir.size) {
-        let dir_entry = DirectoryEntry::new_directory(dir.name(), location, size);
-        let mut entry_buffer = vec![0u8; dir_entry.record_size()];
-        dir_entry.write_to_buffer(&mut entry_buffer)?;
-        buffer.extend_from_slice(&entry_buffer);
-      }
+        if let (Some(dir_location), Some(dir_size)) = (dir.sector_location, dir.size) {
+            let dir_entry = DirectoryEntry::new_directory(dir.name(), dir_location, dir_size);
+            entry_buffer.fill(0);
+            dir_entry.write_to_buffer(&mut entry_buffer)
+                .map_err(|e| Error::InvalidFormat(format!("Failed to write directory entry: {}", e)))?;
+            buffer.extend_from_slice(&entry_buffer);
+        }
     }
 
     // Add entries for files
     for file in self.files.values() {
-      if let (Some(location), Some(size)) = (file.sector_location(), file.size()) {
-        let file_entry = DirectoryEntry::new_file(file.name(), location, size);
-        let mut entry_buffer = vec![0u8; file_entry.record_size()];
-        file_entry.write_to_buffer(&mut entry_buffer)?;
-        buffer.extend_from_slice(&entry_buffer);
-      }
+        if let (Some(file_location), Some(file_size)) = (file.sector_location(), file.size()) {
+            let file_entry = DirectoryEntry::new_file(file.name(), file_location, file_size);
+            entry_buffer.fill(0);
+            file_entry.write_to_buffer(&mut entry_buffer)
+                .map_err(|e| Error::InvalidFormat(format!("Failed to write file entry: {}", e)))?;
+            buffer.extend_from_slice(&entry_buffer);
+        }
     }
 
     // Pad to sector size
     let padding_needed = SECTOR_SIZE - (buffer.len() % SECTOR_SIZE);
     if padding_needed < SECTOR_SIZE {
-      buffer.extend(vec![0u8; padding_needed]);
+        buffer.extend(vec![0u8; padding_needed]);
     }
 
     // Write directory record
     writer.write_all(&buffer)?;
 
     Ok(())
-  }
+}
 
   /// Get the directory name
   pub fn name(&self) -> &str {

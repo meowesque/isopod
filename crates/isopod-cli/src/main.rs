@@ -184,6 +184,9 @@ fn create_iso(
         bail!("No input files or directories specified");
     }
     
+    // Ensure volume ID meets ISO 9660 requirements
+    let sanitized_volume_id = sanitize_volume_id(&volume_id);
+    
     // Check if we can write to the output path
     if let Some(parent) = output.parent() {
         if !parent.exists() {
@@ -192,54 +195,54 @@ fn create_iso(
         }
     }
     
-    // Build ISO
+    // Build ISO with robust configuration
     info!("Setting up ISO builder");
     let mut builder = Iso::builder()
-        .volume_id(volume_id)
+        .volume_id(sanitized_volume_id.clone())
         .joliet(joliet)
         .rock_ridge(rock_ridge)
         .el_torito(el_torito)
         .udf(udf);
     
-    if let Some(publisher) = publisher {
-        builder = builder.publisher(publisher);
-    }
+    // Set optional metadata with fallbacks
+    let publisher_id = publisher.unwrap_or_else(|| "ISOPOD_PUBLISHER".to_string());
+    let preparer_id = preparer.unwrap_or_else(|| "ISOPOD_PREPARER".to_string());
+    let application_id = format!("ISOPOD {}", env!("CARGO_PKG_VERSION"));
     
-    if let Some(preparer) = preparer {
-        builder = builder.preparer(preparer);
-    }
+    builder = builder
+        .publisher(publisher_id)
+        .preparer(preparer_id)
+        .application(application_id);
     
     info!("Creating ISO structure");
     let mut iso = builder.build()
         .with_context(|| "Failed to create ISO structure")?;
     
+    // Add a README if no files are found
+    let mut file_added = false;
+    
     // Add files and directories
     let progress = create_progress_bar("Adding files");
     
-    let mut found_files = false;
     for path in input {
         debug!("Processing input path: {}", path.display());
         
-        // Handle wildcard paths by expanding them
+        // Handle wildcard paths
         if path.to_string_lossy().contains('*') {
             debug!("Wildcard path detected: {}", path.display());
             
-            // Get the parent directory of the wildcard
+            // Expand wildcard paths
             let parent = match path.parent() {
                 Some(p) if p.as_os_str().is_empty() => Path::new("."),
                 Some(p) => p,
                 None => Path::new("."),
             };
             
-            // Get the filename pattern
             let pattern = match path.file_name() {
                 Some(name) => name.to_string_lossy().to_string(),
                 None => continue,
             };
             
-            debug!("Wildcard parent: {}, pattern: {}", parent.display(), pattern);
-            
-            // List all files in parent and match against pattern
             if let Ok(entries) = std::fs::read_dir(parent) {
                 for entry in entries.flatten() {
                     let entry_path = entry.path();
@@ -248,13 +251,12 @@ fn create_iso(
                         None => continue,
                     };
                     
-                    // Simple wildcard matching
                     if matches_wildcard(&name, &pattern) {
                         debug!("Wildcard match: {}", entry_path.display());
                         if let Err(e) = add_files_to_iso(&mut iso, &entry_path, &entry_path, &progress) {
                             warn!("Error adding {}: {}", entry_path.display(), e);
                         } else {
-                            found_files = true;
+                            file_added = true;
                         }
                     }
                 }
@@ -264,16 +266,28 @@ fn create_iso(
             if let Err(e) = add_files_to_iso(&mut iso, &path, &path, &progress) {
                 warn!("Error adding {}: {}", path.display(), e);
             } else {
-                found_files = true;
+                file_added = true;
             }
         }
     }
     
-    if !found_files {
-        bail!("No valid files found to add to the ISO");
+    // Add a README if no files were added
+    if !file_added {
+        let readme_content = format!(
+            "ISO Creation Details\n\n\
+            Volume ID: {}\n\
+            Created with: ISOPOD {}\n\
+            Date: {}\n",
+            sanitized_volume_id, 
+            env!("CARGO_PKG_VERSION"),
+            chrono::Local::now().to_rfc2822()
+        );
+        
+        iso.add_file_with_content("README.TXT", readme_content.as_bytes())
+            .context("Failed to add README to ISO")?;
     }
     
-    progress.finish_with_message("Files added");
+    progress.finish_with_message("Files processed");
     
     // Save ISO
     info!("Writing ISO image to disk");
@@ -290,6 +304,23 @@ fn create_iso(
             Err(e).with_context(|| format!("Failed to write ISO to {}", output.display()))
         }
     }
+}
+
+fn sanitize_volume_id(id: &str) -> String {
+    // Truncate to max 32 characters
+    let truncated = &id[..id.chars().take(32).map(|c| c.len_utf8()).sum()];
+    
+    // Convert to uppercase and replace invalid characters
+    truncated
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c.to_ascii_uppercase()
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 /// Simple wildcard pattern matching

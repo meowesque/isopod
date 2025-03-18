@@ -1,0 +1,16 @@
+[package]
+name = "iso-test"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "ISO Tester"
+authors = ["Maxine DeAndrade"]
+repository = "https://github.com/maxine-deandrade/isopod"
+keywords = ["iso", "iso9660", "filesystem", "cd", "dvd"]
+categories = ["filesystem"]
+readme = "README.md"
+
+[dev-dependencies]
+tempfile = "3.3"
+
+[dependencies]
