@@ -325,9 +325,9 @@ impl VolumeDescriptor for PrimaryVolumeDescriptor {
         buffer[140..144].copy_from_slice(&(20u32).to_le_bytes()); // Path table location
     
         // Root directory entry
-        let mut root_dir_buffer = vec![0u8; 34];
+        let mut root_dir_buffer = vec![0u8; 40];
         self.root_directory_entry
-            .write_to_buffer(&mut root_dir_buffer[0..34])
+            .write_to_buffer(&mut root_dir_buffer[0..40])
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to write root directory entry: {}", e)))?;
         buffer[156..190].copy_from_slice(&root_dir_buffer[0..34]);
     

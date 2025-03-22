@@ -6,10 +6,10 @@ REM to avoid including unnecessary files
 set SOURCE_DIR=crates
 
 REM Define output file
-set OUTPUT_FILE=isopod-lib.iso
+set OUTPUT_FILE=isopod-lib-2.iso
 
 echo Creating ISO with Joliet support enabled...
-target\debug\isopod-cli.exe create --output %OUTPUT_FILE% --volume-id "ISOPOD" --joliet %SOURCE_DIR%
+cargo run --bin isopod-cli -- create --output %OUTPUT_FILE% --volume-id "ISOPOD" --joliet %SOURCE_DIR%
 
 echo.
 if %ERRORLEVEL% EQU 0 (
