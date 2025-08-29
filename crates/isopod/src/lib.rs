@@ -1,11 +1,17 @@
 use std::borrow::Cow;
 
+// TODO(meowesque): Allow this to be configurable
+const SECTOR_SIZE: usize = 2048;
+const VOLUME_DESCRIPTOR_SIZE: usize = 2048;
+const VOLUME_DESCRIPTOR_IDENTIFIER_SIZE: usize = 5;
+
 type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug)]
 pub enum Error {}
 
 #[repr(u8)]
+#[derive(Debug)]
 enum VolumeDescriptorType {
   BootRecord = 0,
   PrimaryVolumeDescriptor = 1,
@@ -13,6 +19,106 @@ enum VolumeDescriptorType {
   VolumePartitionDescriptor = 3,
   Other(u8),
   VolumeDescriptorSetTerminator = 255,
+}
+
+impl VolumeDescriptorType {
+  fn from_u8(value: u8) -> Self {
+    match value {
+      0 => Self::BootRecord,
+      1 => Self::PrimaryVolumeDescriptor,
+      2 => Self::SupplementaryVolumeDescriptor,
+      3 => Self::VolumePartitionDescriptor,
+      255 => Self::VolumeDescriptorSetTerminator,
+      _ => Self::Other(value)
+    }
+  }
+}
+
+#[derive(Debug)]
+enum VolumeDescriptorIdentifier {
+  /// ISO 9660 file system.
+  Cd001,
+  /// Extended descriptor section.
+  Bea01,
+  /// URF filesystem.
+  Nsr02,
+  /// UDF filesystem.
+  Nsr03,
+  /// Boot loader location and entry point address.
+  Boot2,
+  /// Denotes the end of the extended descriptor section.
+  Tea01
+}
+
+impl VolumeDescriptorIdentifier {
+  fn from_bytes(bytes: impl AsRef<[u8]>) -> Option<Self> {
+    Some(match bytes.as_ref() {
+      b"CD001" => Self::Cd001,
+      b"BEA01" => Self::Bea01,
+      b"NSR02" => Self::Nsr02,
+      b"NSR03" => Self::Nsr03,
+      b"BOOT2" => Self::Boot2,
+      b"TEA01" => Self::Tea01,
+      _ => return None
+    })
+  }
+}
+
+#[repr(u16)]
+#[derive(Debug)]
+enum DescriptorTagIdentifier {
+  PrimaryVolumeDescriptor = 0x0001,
+  AnchorVolumeDescriptorPointer = 0x0002,
+  VolumeDescriptorPointer = 0x0003,
+  ImplementationUseVolumeDescriptor = 0x0004,
+  PartitionDescriptor = 0x0005,
+  LogicalVolumeDescriptor = 0x0006,
+  UnallocatedSpaceDescriptor = 0x0007,
+  TerminatingDescriptor = 0x0008,
+  LogicalVolumeIntegrityDescriptor = 0x0009,
+  FileSetDescriptor = 0x0100,
+  FileIdentifierDescriptor = 0x0101,
+  AllocationExtentDescriptor = 0x0102,
+  IndirectEntry = 0x0103,
+  TerminalEntry = 0x0104,
+  FileEntry = 0x0105,
+  ExtendedAttributeHeaderDescriptor = 0x0106,
+  UnallocatedSpaceEntry = 0x0107,
+  SpaceBitmapDescriptor = 0x0108,
+  PartitionIntegrityEntry = 0x0109,
+  ExtendedFileEntry = 0x010A,
+  Other(u16)
+}
+
+#[derive(Debug)]
+struct DescriptorTag {
+  tag_identifier: DescriptorTagIdentifier,
+  descriptor_version: u16,
+  tag_checksum: u8,
+  reserved: u8,
+  tag_serial_number: u16,
+  descriptor_crc: u16,
+  descriptor_crc_length: u16,
+  tag_location: u32,
+}
+
+impl DescriptorTag {
+
+}
+
+#[derive(Debug)]
+struct Extent {
+  /// Length in bytes of data pointed to.
+  length: u32,
+  /// Sector index of the data, relative to the start of the beginning of the volume.
+  location: u32,
+}
+
+#[derive(Debug)]
+struct AnchorVolumeDescriptor {
+  descriptor_tag: DescriptorTag,
+  main_volume_descriptor_sequence_extent: Extent,
+  reserve_volume_descriptor_sequence_extent: Extent,
 }
 
 /// Derived from [OSDev ISO 9660](https://wiki.osdev.org/ISO_9660).
@@ -96,6 +202,23 @@ pub struct PrimaryVolumeDescriptor {
   reserved: [u8; 653],
 }
 
+
+struct UdfLogicalVolumeDescriptor {
+  descriptor_tag: DescriptorTag,
+  volume_sequence_number: u32,
+  // TODO(meowesque): Finish
+  descriptor_character_set: [u8; 64],
+  logical_volume_identifier: [u8; 128],
+  logical_block_size: u32,
+  domain_identifier: [u8; 32],
+  logical_volume_contents_use: [u8; 16],
+  map_table_length: u32,
+  number_of_partition_maps: u16,
+  implementation_identifier: [u8; 32],
+  implementation_use: [u8; 128],
+  integrity_sequence_extent: Extent,
+}
+
 #[derive(Debug)]
 pub enum VolumeDescriptor {
   PrimaryVolumeDescriptor(PrimaryVolumeDescriptor),
@@ -103,6 +226,15 @@ pub enum VolumeDescriptor {
 
 impl VolumeDescriptor {
   fn parse(storage: impl AsRef<[u8]>) -> Result<Self> {
+    let storage = &storage.as_ref()[..VOLUME_DESCRIPTOR_SIZE];
+    
+    let vd_type = VolumeDescriptorType::from_u8(storage[0]);
+    let identifier = VolumeDescriptorIdentifier::from_bytes(&storage[1..6]);
+
+    dbg!(identifier);
+
+    println!("{:?}", vd_type);
+
     todo!()
   }
 }
@@ -173,9 +305,8 @@ where
 
   pub fn scan_volumes(&self) -> Result<Vec<VolumeDescriptor>> {
     const STARTING_SECTOR: usize = 0x10;
-    const VOLUME_DESCRIPTOR_SIZE: usize = 2048;
 
-    let storage = &self.storage.as_ref()[STARTING_SECTOR * 2048..];
+    let storage = &self.storage.as_ref()[STARTING_SECTOR * SECTOR_SIZE..];
 
     let mut position = 0;
     let mut volumes = Vec::new();
