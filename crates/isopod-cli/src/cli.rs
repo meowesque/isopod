@@ -6,6 +6,5 @@ use clap::Parser;
 #[command(version, about, long_about = None)]
 pub struct Cli {
   #[arg(short, long)]
-  pub input: PathBuf
+  pub input: PathBuf,
 }
-

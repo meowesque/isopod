@@ -1,3 +1,7 @@
+mod parse;
+mod udf;
+
+use parse::*;
 use std::borrow::Cow;
 
 // TODO(meowesque): Allow this to be configurable
@@ -9,6 +13,42 @@ type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug)]
 pub enum Error {}
+
+struct IsoDateTime {
+  years_since_1900: u8,
+  month: u8,
+  day: u8,
+  hour: u8,
+  minute: u8,
+  second: u8,
+  /// Offset from GMT in 15 minute intervals from -48 (West) to +52 (East).
+  offset: i8,
+}
+
+impl IsoDateTime {
+  fn parse(i: &[u8]) -> IResult<&[u8], Self> {
+    let (i, years_since_1900) = le_u8(i)?;
+    let (i, month) = le_u8(i)?;
+    let (i, day) = le_u8(i)?;
+    let (i, hour) = le_u8(i)?;
+    let (i, minute) = le_u8(i)?;
+    let (i, second) = le_u8(i)?;
+    let (i, offset) = le_i8(i)?;
+
+    Ok((
+      i,
+      Self {
+        years_since_1900,
+        month,
+        day,
+        hour,
+        minute,
+        second,
+        offset,
+      },
+    ))
+  }
+}
 
 #[repr(u8)]
 #[derive(Debug)]
@@ -29,7 +69,7 @@ impl VolumeDescriptorType {
       2 => Self::SupplementaryVolumeDescriptor,
       3 => Self::VolumePartitionDescriptor,
       255 => Self::VolumeDescriptorSetTerminator,
-      _ => Self::Other(value)
+      _ => Self::Other(value),
     }
   }
 }
@@ -47,7 +87,7 @@ enum VolumeDescriptorIdentifier {
   /// Boot loader location and entry point address.
   Boot2,
   /// Denotes the end of the extended descriptor section.
-  Tea01
+  Tea01,
 }
 
 impl VolumeDescriptorIdentifier {
@@ -59,7 +99,7 @@ impl VolumeDescriptorIdentifier {
       b"NSR03" => Self::Nsr03,
       b"BOOT2" => Self::Boot2,
       b"TEA01" => Self::Tea01,
-      _ => return None
+      _ => return None,
     })
   }
 }
@@ -87,7 +127,7 @@ enum DescriptorTagIdentifier {
   SpaceBitmapDescriptor = 0x0108,
   PartitionIntegrityEntry = 0x0109,
   ExtendedFileEntry = 0x010A,
-  Other(u16)
+  Other(u16),
 }
 
 #[derive(Debug)]
@@ -102,9 +142,7 @@ struct DescriptorTag {
   tag_location: u32,
 }
 
-impl DescriptorTag {
-
-}
+impl DescriptorTag {}
 
 #[derive(Debug)]
 struct Extent {
@@ -123,19 +161,19 @@ struct AnchorVolumeDescriptor {
 
 /// Derived from [OSDev ISO 9660](https://wiki.osdev.org/ISO_9660).
 #[derive(Debug)]
-pub struct PrimaryVolumeDescriptor {
+pub struct PrimaryVolumeDescriptor<'a> {
   /// Always 0x01 for a Primary Volume Descriptor.
   type_code: u8,
-  /// Standard identifier. (Always `CD001`).
-  id: [u8; 5],
+  /// Standard identifier.
+  id: VolumeDescriptorIdentifier,
   /// Version. (Always `0x01`).
   version: u8,
   /// Unused. (Always `0x0`).
   unused1: u8,
   /// Name of the system that can act upon sectors `0x00` to `0x0F` for the volume.
-  system_id: [u8; 32],
+  system_id: Cow<'a, str>,
   /// Identification of this volume.
-  volume_identifier: [u8; 32],
+  volume_identifier: Cow<'a, str>,
   unused2: u64,
   /// Number of Logical Blocks in which the volume is recorded.
   volume_space_size: u16,
@@ -202,8 +240,62 @@ pub struct PrimaryVolumeDescriptor {
   reserved: [u8; 653],
 }
 
+impl<'a> PrimaryVolumeDescriptor<'a> {
+  fn parse(i: &[u8]) -> IResult<&[u8], Self> {
+    // use nom
 
-struct UdfLogicalVolumeDescriptor {
+    let (i, _type_code) = take(1usize).parse(i)?;
+    let (i, _id) = take(5usize).parse(i)?;
+    let (i, _version) = take(1usize).parse(i)?;
+    let (i, _unused1) = take(1usize).parse(i)?;
+    let (i, system_id) = take_string_n(i, 32)?;
+    let (i, volume_identifier) = take_string_n(i, 32)?;
+    let (i, _unused2) = take(8usize).parse(i)?;
+    let (i, volume_space_size) = lsb_msb_u32(i)?;
+    let (i, _unused3) = take(32usize).parse(i)?;
+    let (i, volume_set_size) = lsb_msb_u16(i)?;
+    let (i, volume_sequence_number) = lsb_msb_u16(i)?;
+    let (i, logical_block_size) = lsb_msb_u16(i)?;
+    let (i, path_table_size) = lsb_msb_u32(i)?;
+    let (i, type_l_path_table_lba) = le_u32(i)?;
+    let (i, optional_type_l_path_table_lba) = le_u32(i)?;
+    let (i, type_m_path_table_lba) = be_u32(i)?;
+    let (i, optional_type_m_path_table_lba) = be_u32(i)?;
+    let (i, root_directory_entry) = DirectoryRecord::parse(i)?;
+    // let (i, directory_entry_identifier) = take_string_n(i, 34)?;
+    // let (i, volume_set_identifier) = take_string_n(i, 128)?;
+    // let (i, publisher_identifier) = take_string_n(i, 128)?;
+    // let (i, data_preparer_identifier) = take_string_n(i, 128)?;
+    // let (i, application_identifier) = take_string_n(i, 128)?;
+    // let (i, copyright_file_identifier) = take_string_n(i, 37)?;
+    // let (i, abstract_file_identifier) = take_string_n(i, 37)?;
+    // let (i, bibliographic_file_identifier) = take_string_n(i, 37)?;
+    // let (i, volume_creation_date) = take_string_n(i, 17)?;
+    // let (i, volume_expiration_date) = take_string_n(i, 17)?;
+    // let (i, volume_effective_date) = take_string_n(i, 17)?;
+    // let (i, file_structure_version) = take(1usize).parse(i)?;
+    // let (i, _unused4) = take(1usize).parse(i)?;
+    // let (i, application_used) = take_string_n(i, 512)?;
+
+    dbg!((
+      system_id,
+      volume_identifier,
+      volume_space_size,
+      volume_set_size,
+      volume_sequence_number,
+      logical_block_size,
+      path_table_size,
+      type_l_path_table_lba,
+      optional_type_l_path_table_lba,
+      type_m_path_table_lba,
+      optional_type_m_path_table_lba
+    ));
+
+    todo!()
+  }
+}
+
+struct LogicalVolumeDescriptor {
   descriptor_tag: DescriptorTag,
   volume_sequence_number: u32,
   // TODO(meowesque): Finish
@@ -220,22 +312,23 @@ struct UdfLogicalVolumeDescriptor {
 }
 
 #[derive(Debug)]
-pub enum VolumeDescriptor {
-  PrimaryVolumeDescriptor(PrimaryVolumeDescriptor),
+pub enum VolumeDescriptor<'a> {
+  PrimaryVolumeDescriptor(PrimaryVolumeDescriptor<'a>),
 }
 
-impl VolumeDescriptor {
+impl<'a> VolumeDescriptor<'a> {
   fn parse(storage: impl AsRef<[u8]>) -> Result<Self> {
     let storage = &storage.as_ref()[..VOLUME_DESCRIPTOR_SIZE];
-    
+
     let vd_type = VolumeDescriptorType::from_u8(storage[0]);
     let identifier = VolumeDescriptorIdentifier::from_bytes(&storage[1..6]);
 
-    dbg!(identifier);
-
-    println!("{:?}", vd_type);
-
-    todo!()
+    match vd_type {
+      VolumeDescriptorType::PrimaryVolumeDescriptor => Ok(Self::PrimaryVolumeDescriptor(
+        PrimaryVolumeDescriptor::parse(storage).expect("oops").1,
+      )),
+      _ => todo!(),
+    }
   }
 }
 
@@ -270,18 +363,46 @@ struct DirectoryRecordDateTime {
 struct DirectoryRecord<'a> {
   directory_record_length: u8,
   extended_attribute_record_length: u8,
-  /// LBA of location.
   extent_lba: u32,
   extent_size: u32,
-  record_date: [u8; 7],
+  record_date: IsoDateTime,
   flags: u8,
   interleaved_unit_size: u8,
   interleave_gap_size: u8,
-  volume_sequence_number: u32,
+  volume_sequence_number: u16,
   identifier_length: u8,
-  identifier: Cow<'a, [u8]>,
-  padding: u8,
+  identifier: Cow<'a, str>,
   // TODO(meowesque): ISO 9660 extensions
+}
+
+impl<'a> DirectoryRecord<'a> {
+  fn parse(i: &[u8]) -> IResult<&[u8], Self> {
+    let (i, directory_record_length) = le_u8(i)?;
+    let (i, extended_attribute_record_length) = le_u8(i)?;
+    let (i, extent_lba) = lsb_msb_u32(i)?;
+    let (i, extent_size) = lsb_msb_u32(i)?;
+    let (i, record_date) = IsoDateTime::parse(i)?;
+    let (i, flags) = le_u8(i)?;
+    let (i, interleaved_unit_size) = le_u8(i)?;
+    let (i, interleave_gap_size) = le_u8(i)?;
+    let (i, volume_sequence_number) = lsb_msb_u16(i)?;
+    let (i, identifier_length) = le_u8(i)?;
+    let (i, identifier) = take_string_n(i, identifier_length as usize)?;
+
+    Ok((i, Self {
+      directory_record_length,
+      extended_attribute_record_length,
+      extent_lba,
+      extent_size,
+      record_date,
+      flags,
+      interleaved_unit_size,
+      interleave_gap_size,
+      volume_sequence_number,
+      identifier_length,
+      identifier: todo!()
+    }))
+  }
 }
 
 // https://github.com/Adam-Vandervorst/PathMap/blob/master/src/arena_compact.rs#L625-L626
@@ -311,7 +432,9 @@ where
     let mut position = 0;
     let mut volumes = Vec::new();
 
-    while position < storage.len() || storage[position] != 255 /* TODO(meowesque): Unreadable, lazy */ {
+    while position < storage.len() || storage[position] != 255
+    /* TODO(meowesque): Unreadable, lazy */
+    {
       let descriptor_bytes = &storage[position..position + VOLUME_DESCRIPTOR_SIZE];
       let volume_descriptor = VolumeDescriptor::parse(descriptor_bytes)?;
 
