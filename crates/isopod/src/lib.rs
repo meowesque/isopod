@@ -366,6 +366,129 @@ impl PrimaryVolumeDescriptor {
   }
 }
 
+#[derive(Debug)]
+struct SupplementaryVolumeDescriptor {
+  volume_flags: u8,
+  system_id: String,
+  volume_id: String,
+  volume_space_size: u32,
+  escape_sequences: [u8; 32],
+  volume_set_size: u16,
+  volume_sequence_number: u16,
+  logical_block_size: u16,
+  path_table_size: u32,
+  /// Location of Type-L Path Table. The path table to contains only little-endian values.
+  type_l_path_table_lba: u32,
+  /// LBA location of the optional path table. The path table
+  /// pointed to contains only little-endian values. Zero means
+  /// that no optional path table exists.
+  optional_type_l_path_table_lba: u32,
+  /// LBA location of the path table. The path tbale pointed to contains
+  /// only big-endian values.
+  type_m_path_table_lba: u32,
+  /// LBA location of the optional path table. The path table pointed
+  /// to contains only big-endian values. Zero means that no optional path table exists.
+  optional_type_m_path_table_lba: u32,
+  root_directory_record: DirectoryRecord,
+  volume_set_id: String,
+  publisher_id: String,
+  data_preparer_id: String,
+  application_id: String,
+  copyright_file_id: String,
+  abstract_file_id: [u8; 36],
+  bibliographic_file_id: [u8; 37],
+  volume_creation_date: IsoPreciseDateTime,
+  volume_modification_date: IsoPreciseDateTime,
+  volume_expiration_date: IsoPreciseDateTime,
+  volume_effective_date: IsoPreciseDateTime,
+  file_structure_version: u8,
+  application_used: [u8; 512],
+  reserved: [u8; 653],
+}
+
+impl SupplementaryVolumeDescriptor {
+  fn parse(i: &[u8]) -> IResult<&[u8], Self> {
+    let (i, _vd_type) = take(1usize).parse(i)?;
+    let (i, id) = VolumeDescriptorIdentifier::parse(i)?;
+    let (i, version) = le_u8(i)?;
+    let (i, volume_flags) = le_u8(i)?;
+    let (i, system_id) = take_utf16be_n(i, 32)?;
+
+    let (i, volume_id) = take_utf16be_n(i, 32)?;
+    let (i, _unused1) = take(8usize).parse(i)?;
+    let (i, volume_space_size) = lsb_msb_u32(i)?;
+    let (i, escape_sequences) = take(32usize).parse(i)?;
+    let (i, volume_set_size) = lsb_msb_u16(i)?;
+    let (i, volume_sequence_number) = lsb_msb_u16(i)?;
+
+    let (i, logical_block_size) = lsb_msb_u16(i)?;
+    let (i, path_table_size) = lsb_msb_u32(i)?;
+
+    let (i, type_l_path_table_lba) = le_u32(i)?;
+    let (i, optional_type_l_path_table_lba) = le_u32(i)?;
+    let (i, type_m_path_table_lba) = be_u32(i)?;
+    let (i, optional_type_m_path_table_lba) = be_u32(i)?;
+
+    let (i, root_directory_record) = DirectoryRecord::parse(i)?;
+
+    let (i, volume_set_id) = take_utf16be_n(i, 128)?;
+    let (i, publisher_id) = take_utf16be_n(i, 128)?;
+    let (i, data_preparer_id) = take_utf16be_n(i, 128)?;
+    let (i, application_id) = take_utf16be_n(i, 128)?;
+    let (i, copyright_file_id) = take_utf16be_n(i, 38)?;
+    let (i, abstract_file_id) = take(36usize).parse(i)?;
+    let (i, bibliographic_file_id) = take(37usize).parse(i)?;
+
+    let (i, volume_creation_date) = IsoPreciseDateTime::parse(i)?;
+    let (i, volume_modification_date) = IsoPreciseDateTime::parse(i)?;
+    let (i, volume_expiration_date) = IsoPreciseDateTime::parse(i)?;
+    let (i, volume_effective_date) = IsoPreciseDateTime::parse(i)?;
+
+    let (i, file_structure_version) = le_u8(i)?;
+
+    let (i, _unused4) = take(1usize).parse(i)?;
+
+    let (i, application_used) = take(512usize).parse(i)?;
+
+    // TODO(meowesque): Implement parsing for ISO 9660 extensions.
+    let (i, reserved) = take(653usize).parse(i)?;
+
+    Ok((
+      i,
+      Self {
+        volume_flags,
+        system_id: system_id.to_string(),
+        volume_id: volume_id.to_string(),
+        volume_space_size,
+        escape_sequences: escape_sequences.try_into().unwrap(),
+        volume_set_size,
+        volume_sequence_number,
+        logical_block_size,
+        path_table_size,
+        type_l_path_table_lba,
+        optional_type_l_path_table_lba,
+        type_m_path_table_lba,
+        optional_type_m_path_table_lba,
+        root_directory_record,
+        volume_set_id: volume_set_id.to_owned(),
+        publisher_id: publisher_id.to_owned(),
+        data_preparer_id: data_preparer_id.to_owned(),
+        application_id: application_id.to_owned(),
+        copyright_file_id: copyright_file_id.to_owned(),
+        abstract_file_id: abstract_file_id.try_into().unwrap(),
+        bibliographic_file_id: bibliographic_file_id.try_into().unwrap(),
+        volume_creation_date,
+        volume_modification_date,
+        volume_expiration_date,
+        volume_effective_date,
+        file_structure_version,
+        application_used: application_used.try_into().unwrap(),
+        reserved: reserved.try_into().unwrap(),
+      },
+    ))
+  }
+}
+
 struct LogicalVolumeDescriptor {
   descriptor_tag: DescriptorTag,
   volume_sequence_number: u32,
@@ -385,6 +508,7 @@ struct LogicalVolumeDescriptor {
 #[derive(Debug)]
 pub enum VolumeDescriptor {
   PrimaryVolumeDescriptor(PrimaryVolumeDescriptor),
+  SupplementaryVolumeDescriptor(SupplementaryVolumeDescriptor),
 }
 
 impl VolumeDescriptor {
@@ -398,6 +522,11 @@ impl VolumeDescriptor {
         let (i, pvd) = PrimaryVolumeDescriptor::parse(i)?;
 
         Ok((i, Self::PrimaryVolumeDescriptor(pvd)))
+      }
+      VolumeDescriptorType::SupplementaryVolumeDescriptor => {
+        let (i, svd) = SupplementaryVolumeDescriptor::parse(i)?;
+
+        Ok((i, Self::SupplementaryVolumeDescriptor(svd)))
       }
       _ => todo!(),
     }
@@ -535,6 +664,8 @@ where
     {
       let descriptor_bytes = &storage[position..position + VOLUME_DESCRIPTOR_SIZE];
       let (_, volume_descriptor) = VolumeDescriptor::parse(descriptor_bytes).expect("Something");
+
+      println!("{:?}", &volume_descriptor);
 
       volumes.push(volume_descriptor);
       position += VOLUME_DESCRIPTOR_SIZE;
