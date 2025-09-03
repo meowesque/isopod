@@ -1,6 +1,6 @@
 # isopod
 
-ISO library currently in development, awaiting stable release.
+ISO 9660:2023 library currently in development, awaiting stable release.
 
 ## License
 
