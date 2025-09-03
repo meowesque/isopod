@@ -9,7 +9,7 @@ pub(crate) fn take_string_n(i: &[u8], n: usize) -> IResult<&[u8], &str> {
 }
 
 pub(crate) fn lsb_msb_u16(i: &[u8]) -> IResult<&[u8], u16> {
-  terminated(le_u16, take(4usize)).parse(i)
+  terminated(le_u16, take(2usize)).parse(i)
 }
 
 pub(crate) fn lsb_msb_u32(i: &[u8]) -> IResult<&[u8], u32> {
