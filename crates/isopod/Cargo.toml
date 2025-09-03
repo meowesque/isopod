@@ -6,4 +6,5 @@ license = "MIT"
 description = "ISO 9660 library"
 
 [dependencies]
+byteorder = "1.5.0"
 nom = "8.0.0"
