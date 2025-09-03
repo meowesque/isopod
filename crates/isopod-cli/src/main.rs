@@ -7,7 +7,7 @@ fn main() {
 
   let file = std::fs::read(&cli.input).expect("Failed to read input file");
 
-  let iso = isopod::Iso::new(file);
+  let iso = isopod::Iso::new(isopod::Options::default(), file);
   let volumes = iso.scan_volumes();
 
   println!("{:?}", volumes);

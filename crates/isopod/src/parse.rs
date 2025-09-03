@@ -15,3 +15,7 @@ pub(crate) fn lsb_msb_u16(i: &[u8]) -> IResult<&[u8], u16> {
 pub(crate) fn lsb_msb_u32(i: &[u8]) -> IResult<&[u8], u32> {
   terminated(le_u32, take(4usize)).parse(i)
 }
+
+pub(crate) fn ascii_i32(i: &[u8], n: usize) -> IResult<&[u8], i32> {
+  map_res(map_res(take(n), str::from_utf8), str::parse::<i32>).parse(i)
+}
