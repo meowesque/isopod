@@ -95,6 +95,7 @@ impl IsoPreciseDateTime {
 enum VolumeDescriptorType {
   BootRecord = 0,
   PrimaryVolumeDescriptor = 1,
+  /// Supplementary volume descriptor, used by Joliet.
   SupplementaryVolumeDescriptor = 2,
   VolumePartitionDescriptor = 3,
   Other(u8),
@@ -367,7 +368,7 @@ impl PrimaryVolumeDescriptor {
 }
 
 #[derive(Debug)]
-struct SupplementaryVolumeDescriptor {
+pub struct SupplementaryVolumeDescriptor {
   volume_flags: u8,
   system_id: String,
   volume_id: String,
@@ -512,7 +513,7 @@ pub enum VolumeDescriptor {
 }
 
 impl VolumeDescriptor {
-  fn parse(i: &[u8]) -> IResult<&[u8], Self> {
+  fn parse(i: &[u8]) -> IResult<&[u8], Option<Self>> {
     let i = &i.as_ref()[..VOLUME_DESCRIPTOR_SIZE];
     // The type is the first byte of any volume descriptor
     let vd_type = VolumeDescriptorType::from_u8(i[0]);
@@ -521,13 +522,14 @@ impl VolumeDescriptor {
       VolumeDescriptorType::PrimaryVolumeDescriptor => {
         let (i, pvd) = PrimaryVolumeDescriptor::parse(i)?;
 
-        Ok((i, Self::PrimaryVolumeDescriptor(pvd)))
+        Ok((i, Some(Self::PrimaryVolumeDescriptor(pvd))))
       }
       VolumeDescriptorType::SupplementaryVolumeDescriptor => {
         let (i, svd) = SupplementaryVolumeDescriptor::parse(i)?;
 
-        Ok((i, Self::SupplementaryVolumeDescriptor(svd)))
+        Ok((i, Some(Self::SupplementaryVolumeDescriptor(svd))))
       }
+      VolumeDescriptorType::VolumeDescriptorSetTerminator => Ok((i, None)),
       _ => todo!(),
     }
   }
@@ -541,7 +543,7 @@ struct PathTableRecord {
   /// Extended Attribute Record Length.
   extended_attribute_record_length: u8,
   /// Location of Extent (LBA). This is in a different format depending on
-  /// whether this is the L-TAble or M-Table.
+  /// whether this is the L-Table or M-Table.
   extent_lba: u32,
   /// Directory number of parent directory (an index in to the path table).
   /// This is the field that limits the table to `65536` records.
@@ -563,16 +565,16 @@ struct DirectoryRecordDateTime {
 
 #[derive(Debug)]
 struct DirectoryRecord {
-  length: u8,
+  record_length: u8,
   extended_attribute_record_length: u8,
   extent_lba: u32,
   extent_length: u32,
 
-  record_date: IsoDateTime,
+  recording_date: IsoDateTime,
 
   file_flags: u8,
 
-  interleaved_unit_size: u8,
+  file_unit_size: u8,
   interleave_gap_size: u8,
 
   volume_sequence_number: u16,
@@ -584,16 +586,18 @@ struct DirectoryRecord {
 
 impl DirectoryRecord {
   fn parse(i: &[u8]) -> IResult<&[u8], Self> {
-    let (i, length) = le_u8(i)?;
+    let i_oldlen = i.len();
+
+    let (i, record_length) = le_u8(i)?;
     let (i, extended_attribute_record_length) = le_u8(i)?;
     let (i, extent_lba) = lsb_msb_u32(i)?;
     let (i, extent_length) = lsb_msb_u32(i)?;
 
-    let (i, record_date) = IsoDateTime::parse(i)?;
+    let (i, recording_date) = IsoDateTime::parse(i)?;
 
     let (i, file_flags) = le_u8(i)?;
 
-    let (i, interleaved_unit_size) = le_u8(i)?;
+    let (i, file_unit_size) = le_u8(i)?;
     let (i, interleave_gap_size) = le_u8(i)?;
 
     let (i, volume_sequence_number) = lsb_msb_u16(i)?;
@@ -601,16 +605,25 @@ impl DirectoryRecord {
     let (i, identifier_length) = le_u8(i)?;
     let (i, identifier) = take_string_n(i, identifier_length as usize)?;
 
+    let (i, _padding) = take(1usize).parse(i)?;
+
+    let (i, _system_use) = take(
+      (record_length as usize)
+        .saturating_sub(i_oldlen - i.len())
+        .saturating_sub(identifier_length as usize),
+    )
+    .parse(i)?;
+
     Ok((
       i,
       Self {
-        length,
+        record_length,
         extended_attribute_record_length,
         extent_lba,
         extent_length,
-        record_date,
+        recording_date,
         file_flags,
-        interleaved_unit_size,
+        file_unit_size,
         interleave_gap_size,
         volume_sequence_number,
         identifier_length,
@@ -619,6 +632,8 @@ impl DirectoryRecord {
     ))
   }
 }
+
+pub struct IsoDir {}
 
 #[derive(Debug)]
 pub struct Options {
@@ -663,7 +678,10 @@ where
     /* TODO(meowesque): Unreadable, lazy */
     {
       let descriptor_bytes = &storage[position..position + VOLUME_DESCRIPTOR_SIZE];
-      let (_, volume_descriptor) = VolumeDescriptor::parse(descriptor_bytes).expect("Something");
+      let (_, Some(volume_descriptor)) = VolumeDescriptor::parse(descriptor_bytes).expect("Uh")
+      else {
+        break;
+      };
 
       println!("{:?}", &volume_descriptor);
 
