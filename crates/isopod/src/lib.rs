@@ -605,6 +605,7 @@ impl DirectoryRecord {
     let (i, identifier_length) = le_u8(i)?;
     let (i, identifier) = take_string_n(i, identifier_length as usize)?;
 
+    /*
     let (i, _padding) = take(1usize).parse(i)?;
 
     let (i, _system_use) = take(
@@ -613,6 +614,7 @@ impl DirectoryRecord {
         .saturating_sub(identifier_length as usize),
     )
     .parse(i)?;
+    */
 
     Ok((
       i,
