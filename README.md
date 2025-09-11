@@ -2,6 +2,14 @@
 
 ISO 9660:2023 library currently in development, awaiting stable release.
 
+## Roadmap
+
+* [ ] Incremental reading
+* [ ] Incremental writing/exporting
+* [ ] Modification (ie. modifying on disk)
+* [ ] Joliet support
+* [ ] Rock Ridge support
+
 ## References
 
 * [ECMA-119](https://ecma-international.org/wp-content/uploads/ECMA-119_5th_edition_december_2024.pdf)
