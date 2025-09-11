@@ -5,6 +5,7 @@ use parse::*;
 use std::borrow::Cow;
 
 // TODO(meowesque): Allow this to be configurable
+const STARTING_SECTOR: usize = 0x10;
 const SECTOR_SIZE: usize = 2048;
 const VOLUME_DESCRIPTOR_SIZE: usize = 2048;
 const VOLUME_DESCRIPTOR_IDENTIFIER_SIZE: usize = 5;
@@ -178,6 +179,17 @@ enum DescriptorTagIdentifier {
   PartitionIntegrityEntry = 0x0109,
   ExtendedFileEntry = 0x010A,
   Other(u16),
+}
+
+bitflags::bitflags! {
+  struct FileFlags: u8 {
+    const EXISTENCE = 1 << 0;
+    const DIRECTORY = 1 << 1;
+    const ASSOCIATED_FILE = 1 << 2;
+    const RECORD = 1 << 3;
+    const PROTECTION = 1 << 4;
+    const MULTI_EXTENT = 1 << 7;
+  }
 }
 
 #[derive(Debug)]
@@ -537,6 +549,7 @@ impl VolumeDescriptor {
 
 /// The Path Table contains a well-ordered sequence of records describing every directory extent on the CD.
 /// There are some exceptions with this: the Path Table can only contain 65536 records, due to the length of the `parent_directory_number` field.
+#[derive(Debug)]
 struct PathTableRecord {
   /// Length of Directory Identifier.
   directory_identifier_length: u8,
@@ -549,6 +562,28 @@ struct PathTableRecord {
   /// This is the field that limits the table to `65536` records.
   parent_directory_number: u16,
   directory_name: String,
+}
+
+impl PathTableRecord {
+  fn parse(i: &[u8]) -> IResult<&[u8], Self> {
+    let (i, directory_identifier_length) = le_u8(i)?;
+    let (i, extended_attribute_record_length) = le_u8(i)?;
+    let (i, extent_lba) = le_u32(i)?;
+    let (i, parent_directory_number) = le_u16(i)?;
+    let (i, directory_name) = take_string_n(i, directory_identifier_length as usize)?;
+    let (i, _padding) = take(1usize).parse(i)?;
+
+    Ok((
+      i,
+      Self {
+        directory_identifier_length,
+        extended_attribute_record_length,
+        extent_lba,
+        parent_directory_number,
+        directory_name: directory_name.to_owned(),
+      },
+    ))
+  }
 }
 
 /// Date time used within `DirectoryRecord`.
@@ -605,16 +640,50 @@ impl DirectoryRecord {
     let (i, identifier_length) = le_u8(i)?;
     let (i, identifier) = take_string_n(i, identifier_length as usize)?;
 
-    /*
+    Ok((
+      i,
+      Self {
+        record_length,
+        extended_attribute_record_length,
+        extent_lba,
+        extent_length,
+        recording_date,
+        file_flags,
+        file_unit_size,
+        interleave_gap_size,
+        volume_sequence_number,
+        identifier_length,
+        identifier: identifier.to_owned(),
+      },
+    ))
+  }
+
+  fn parse_ext(i: &[u8]) -> IResult<&[u8], Self> {
+    let i_oldlen = i.len();
+
+    let (i, record_length) = le_u8(i)?;
+    let (i, extended_attribute_record_length) = le_u8(i)?;
+    let (i, extent_lba) = lsb_msb_u32(i)?;
+    let (i, extent_length) = lsb_msb_u32(i)?;
+
+    let (i, recording_date) = IsoDateTime::parse(i)?;
+
+    let (i, file_flags) = le_u8(i)?;
+
+    let (i, file_unit_size) = le_u8(i)?;
+    let (i, interleave_gap_size) = le_u8(i)?;
+
+    let (i, volume_sequence_number) = lsb_msb_u16(i)?;
+
+    let (i, identifier_length) = le_u8(i)?;
+    let (i, identifier) = take_string_n(i, identifier_length as usize)?;
+
     let (i, _padding) = take(1usize).parse(i)?;
 
-    let (i, _system_use) = take(
-      (record_length as usize)
-        .saturating_sub(i_oldlen - i.len())
-        .saturating_sub(identifier_length as usize),
-    )
+    let (i, _system_use) = take(dbg!((record_length as usize)
+      .saturating_sub(i_oldlen - i.len())
+      .saturating_sub(identifier_length as usize)))
     .parse(i)?;
-    */
 
     Ok((
       i,
@@ -634,8 +703,6 @@ impl DirectoryRecord {
     ))
   }
 }
-
-pub struct IsoDir {}
 
 #[derive(Debug)]
 pub struct Options {
@@ -669,8 +736,6 @@ where
   }
 
   pub fn scan_volumes(&self) -> Result<Vec<VolumeDescriptor>> {
-    const STARTING_SECTOR: usize = 0x10;
-
     let storage = &self.storage.as_ref()[STARTING_SECTOR * self.options.sector_size as usize..];
 
     let mut position = 0;
@@ -692,6 +757,114 @@ where
     }
 
     Ok(volumes)
+  }
+
+  pub fn scan_path_table(&self, lba: usize, size: usize) -> Result<Vec<PathTableRecord>> {
+    let storage = &self.storage.as_ref()[lba * self.options.sector_size as usize..];
+
+    let mut position = 0;
+    let mut records = Vec::new();
+
+    while position < size {
+      let (i, record) = PathTableRecord::parse(&storage[position..]).expect("uhh");
+
+      /*
+      dbg!(
+        DirectoryRecord::parse(
+          &self.storage.as_ref()
+            [dbg!(record.extent_lba) as usize * self.options.sector_size as usize..]
+        )
+        .expect("uhh")
+        .1
+      ); */
+
+      records.push(dbg!(record));
+      position += storage.len() - i.len();
+    }
+
+    Ok(records)
+  }
+
+  pub fn recurse_directories(&self, record: &DirectoryRecord) -> Result<()> {
+    let storage =
+      &self.storage.as_ref()[record.extent_lba as usize * self.options.sector_size as usize..];
+
+    let mut position = 0;
+
+    while position < record.extent_length as usize {
+      let (i, record) = DirectoryRecord::parse(&storage[position..]).expect("uhh");
+
+      println!("{:#?}", record);
+
+      /*if record.file_flags & FileFlags::DIRECTORY.bits() != 0 {
+        if record.identifier != "\u{0}" && record.identifier != "\u{1}" {
+          self.recurse_directories(&record)?;
+        }
+      }*/
+
+      /*
+      if record.file_flags == 0 {
+        dbg!(str::from_utf8(
+          &self.storage.as_ref()[record.extent_lba as usize * self.options.sector_size as usize
+            ..record.extent_lba as usize * self.options.sector_size as usize
+              + record.extent_length as usize]
+        )
+        .unwrap());
+      }() */
+
+      if record.file_flags == 2 && record.identifier != "\u{0}" && record.identifier != "\u{1}" {
+        let record_2 = DirectoryRecord::parse(
+          &self.storage.as_ref()[record.extent_lba as usize * self.options.sector_size as usize
+            ..record.extent_lba as usize * self.options.sector_size as usize
+              + record.extent_length as usize],
+        )
+        .expect("uhh")
+        .1;
+
+        self.recurse_directories(&record_2)?;
+      }
+
+      /*
+      if record.file_flags == 2 {
+        let record_2 = DirectoryRecord::parse(
+          &self.storage.as_ref()
+            [record.extent_lba as usize * self.options.sector_size as usize..],
+        ).expect("uhh").1;
+
+        self.recurse_directories(&record_2)?;
+      } */
+
+      if record.record_length == 0 {
+        break;
+      }
+
+      position += record.record_length as usize;
+    }
+
+    Ok(())
+  }
+
+  pub fn read(&self) -> Result<()> {
+    let volumes = self.scan_volumes()?;
+
+    for volume in volumes {
+      match volume {
+        VolumeDescriptor::PrimaryVolumeDescriptor(pvd) => {
+          let path_table_records = self.scan_path_table(
+            pvd.type_l_path_table_lba as usize,
+            pvd.path_table_size as usize,
+          )?;
+          println!("{:?}", path_table_records);
+
+          self.recurse_directories(&pvd.root_directory_entry)?;
+        }
+        VolumeDescriptor::SupplementaryVolumeDescriptor(svd) => {
+          println!("SVD: {:?}", svd);
+        }
+      }
+    }
+
+    Ok(())
   }
 }
 
