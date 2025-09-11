@@ -9,6 +9,8 @@ ISO 9660:2023 library currently in development, awaiting stable release.
 * [ ] Modification (ie. modifying on disk)
 * [ ] Joliet support
 * [ ] Rock Ridge support
+* [ ] Exhaustive specification implementation documentation
+* [ ] Example suite
 
 ## References
 
