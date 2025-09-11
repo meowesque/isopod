@@ -1,0 +1,244 @@
+//! Low-level ISO 9660 (& Joliet) filesystem specification structures and constants.
+
+/// Recording date utilized within directory records.
+#[derive(Debug)]
+pub struct IsoPreciseDateTime {
+  pub year: u16,
+  pub month: u8,
+  pub day: u8,
+  pub hour: u8,
+  pub minute: u8,
+  pub second: u8,
+  pub hundredths: u8,
+}
+
+/// Date/Time format utilized in creation and modification dates.
+#[derive(Debug)]
+pub struct IsoDateTime {
+  pub years_since_1900: u16,
+  pub month: u8,
+  pub day: u8,
+  pub hour: u8,
+  pub minute: u8,
+  pub second: u8,
+  /// Offset from GMT in 16 minute intervals from -48 (west) to +52 (east).
+  pub offset: i8,
+}
+
+#[repr(u8)]
+#[derive(Debug)]
+pub enum VolumeDescriptorType {
+  BootRecord = 0,
+  PrimaryVolumeDescriptor = 1,
+  SupplementaryVolumeDescriptor = 2,
+  VolumePartitionDescriptor = 3,
+  Other(u8),
+  VolumeDescriptorSetTerminator = 255,
+}
+
+impl VolumeDescriptorType {
+  pub fn from_u8(value: u8) -> Self {
+    match value {
+      0 => VolumeDescriptorType::BootRecord,
+      1 => VolumeDescriptorType::PrimaryVolumeDescriptor,
+      2 => VolumeDescriptorType::SupplementaryVolumeDescriptor,
+      3 => VolumeDescriptorType::VolumePartitionDescriptor,
+      255 => VolumeDescriptorType::VolumeDescriptorSetTerminator,
+      other => VolumeDescriptorType::Other(other),
+    }
+  }
+}
+
+#[derive(Debug)]
+pub enum VolumeDescriptorIdentifier {
+  /// ISO 9660 file system.
+  Cd001,
+  /// Extended descriptor section.
+  Bea01,
+  /// UDF file system.
+  Nsr02,
+  /// UDF file system.
+  Nsr03,
+  /// Boot loader location and entry point address.
+  Boot2,
+  /// Denotes the end of the extended descriptor section.
+  Tea01
+}
+
+impl VolumeDescriptorIdentifier {
+  fn from_bytes(bytes: impl AsRef<[u8]>) -> Option<Self> {
+    Some(match bytes.as_ref() {
+      b"CD001" => Self::Cd001,
+      b"BEA01" => Self::Bea01,
+      b"NSR02" => Self::Nsr02,
+      b"NSR03" => Self::Nsr03,
+      b"BOOT2" => Self::Boot2,
+      b"TEA01" => Self::Tea01,
+      _ => return None,
+    })
+  }
+}
+
+bitflags::bitflags! {
+  #[derive(Debug)]
+  pub struct FileFlags: u8 {
+    const EXISTENCE = 1 << 0;
+    const DIRECTORY = 1 << 1;
+    const ASSOCIATED_FILE = 1 << 2;
+    const RECORD = 1 << 3;
+    const PROTECTION = 1 << 4;
+    const MULTI_EXTENT = 1 << 7;
+  }
+
+  #[derive(Debug)]
+  pub struct SupplementaryVolumeFlags: u8 {
+    /// Indicates that the escape sequences field within `SupplementaryVolumeDescriptor` 
+    /// specifies escape sequences registered according to ISO/IEC 2375.
+    /// 
+    /// If this bit is toggled to true, there will be at least one escape sequence
+    /// not registered according to ISO/IEC 2375.
+    const ESCAPE_SEQUENCES_COMPLIANT = 1 << 0;
+    const RESERVED_2 = 1 << 1;
+    const RESERVED_3 = 1 << 2;
+    const RESERVED_4 = 1 << 3;
+    const RESERVED_5 = 1 << 4;
+    const RESERVED_6 = 1 << 5;
+    const RESERVED_7 = 1 << 6;
+  }
+}
+
+#[derive(Debug)]
+pub struct PrimaryVolumeDescriptor {
+  /// Standard identifier.
+  pub standard_identifier: VolumeDescriptorIdentifier,
+  /// Version. (Always `0x01`).
+  pub version: u8,
+  /// Name of the system that can act upon sectors `0x00` to `0x0F` for the volume.
+  pub system_identifier: String,
+  /// Identification of this volume.
+  pub volume_identifier: String,
+  /// Number of Logical Blocks in which the volume is recorded.
+  pub volume_space_size: u32, 
+  /// The size of the set in this logical volume (number of disks).
+  pub volume_set_size: u16,
+  /// The number of this disk in the Volume Set.
+  pub volume_sequence_number: u16,
+  /// The size in bytes of a logical block. NB: This means that
+  /// a logical block on a CD could be something other than 2 KiB!
+  pub logical_block_size: u16,
+  /// The size in bytes of the path table.
+  pub path_table_size: u32,
+  /// Location of Type-L Path Table. The path table to contains only little-endian values.
+  pub type_l_path_table_lba: u32,
+  /// LBA location of the optional path table. The path table
+  /// pointed to contains only little-endian values. Zero means
+  /// that no optional path table exists.
+  pub optional_type_l_path_table_lba: u32,
+  /// LBA location of the path table. The path tbale pointed to contains
+  /// only big-endian values.
+  pub type_m_path_table_lba: u32,
+  /// LBA location of the optional path table. The path table pointed
+  /// to contains only big-endian values. Zero means that no optional path table exists.
+  pub optional_type_m_path_table_lba: u32,
+  pub root_directory_record: DirectoryRecord,
+  /// Identifier of the volume set of which this volume is a member.
+  pub volume_set_identifier: String,
+  /// The volume publisher. For extended publisher information, the first byte should
+  /// be `0x5F`, followed by the filename of a file in the root directory. If not
+  /// specified, all bytes should be `0x20`.
+  pub publisher_identifier: String,
+  /// The identifier of the person(s) who prepared the data for this volume. For
+  /// extended preparation information, the first byte should be `0x5F`, followed
+  /// by the filename of a file in the root directory. If not specified, all bytes
+  /// should be `0x20`.
+  pub data_preparer_identifier: String,
+  /// Identifies how the data is recorded on this volume. For extended information, the
+  /// first byte should be `0x5F`, followed by the filename of a file in the root directory.
+  /// If not specified all bytes should be `0x20`.
+  pub application_identifier: String,
+  /// Filename of a file in the root diretory that contains copyright information for this volume
+  /// set. If not specified, all bytes should be 0x20.
+  pub copyright_file_identifier: String,
+  /// Filename of a file in the root directory that contains abstract information for this volum
+  /// set. If not specified, all bytes should be `0x20`.
+  pub abstract_file_identifier: [u8; 36],
+  /// Filename of a file in the root directory that contains bibliographic information
+  /// for this volume set. If not specified all bytes should be `0x20`.
+  pub bibliographic_file_identifier: [u8; 37],
+  /// The date and time of when the volume was created
+  pub volume_creation_date: IsoDateTime,
+  /// The date and time of when the volume was last modified.
+  pub volume_modification_date: IsoDateTime,
+  /// The date and time after which this volume is considered to be obsolete. If not specified
+  /// then the volume is never considered to be obsolete.
+  pub volume_expiration_date: IsoDateTime,
+  /// The date and time after which the volume may be used. IF not specified, the volume may
+  /// be used immediately.
+  pub volume_effective_date: IsoDateTime,
+  /// The directory records and path table version (always `0x01`).
+  pub file_structure_version: u8,
+  pub application_data: [u8; 512],
+  pub reserved: [u8; 653],
+}
+
+#[derive(Debug)]
+pub struct SupplementaryVolumeDescriptor {
+  pub volume_flags: SupplementaryVolumeFlags,
+  pub system_identifier: String,
+  pub volume_identifier: String,
+  pub volume_space_size: u32,
+  pub escape_sequences: [u8; 32],
+  pub volume_set_size: u16,
+  pub volume_sequence_number: u16,
+  pub logical_block_size: u16,
+  pub path_table_size: u32,
+  pub type_l_path_table_lba: u32,
+  pub optional_type_l_path_table_lba: u32,
+  pub type_m_path_table_lba: u32,
+  pub optional_type_m_path_table_lba: u32,
+  pub root_directory_record: DirectoryRecord,
+  pub volume_set_identifier: String,
+  pub publisher_identifier: String,
+  pub data_preparer_identifier: String,
+  pub application_identifier: String,
+  pub copyright_file_identifier: String,
+  pub abstract_file_identifier: [u8; 36],
+  pub bibliographic_file_identifier: [u8; 37],
+  pub volume_creation_date: IsoPreciseDateTime,
+  pub volume_modification_date: IsoPreciseDateTime,
+  pub volume_expiration_date: IsoPreciseDateTime,
+  pub volume_effective_date: IsoPreciseDateTime,
+  pub file_structure_version: u8,
+  pub application_data: [u8; 512],
+  pub reserved: [u8; 653],
+}
+
+#[derive(Debug)]
+pub struct DirectoryRecord {
+  pub record_length: u8,
+  pub extended_attribute_record_length: u8,
+  pub extent_lba: u32,
+  pub extent_length: u32,
+  pub recording_date: IsoDateTime,
+  pub file_flags: FileFlags,
+  pub file_unit_size: u8,
+  pub interleave_gap_size: u8,
+  pub volume_sequence_number: u16,
+  pub identifier_length: u8,
+  pub identifier: String
+}
+
+#[derive(Debug)]
+pub enum VolumeDescriptor {
+  Primary(PrimaryVolumeDescriptor),
+  Supplementary(SupplementaryVolumeDescriptor),
+}
+
+#[derive(Debug)]
+pub struct PathTableRecord {
+  pub directory_identifier_length: u8,
+  pub extended_attribute_record_length: u8,
+  pub extent_lba: u32,
+  pub parent_directory_number: u16,
+  pub directory_identifier: String,
+}
