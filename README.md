@@ -4,8 +4,10 @@ ISO 9660:2023 library currently in development, awaiting stable release.
 
 ## References
 
-[OSDev Wiki](https://wiki.osdev.org/ISO_9660)
-[isofs](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/fs/isofs)
+* [ECMA-119](https://ecma-international.org/wp-content/uploads/ECMA-119_5th_edition_december_2024.pdf)
+* ISO/IEC 9660:2023 
+* [OSDev Wiki](https://wiki.osdev.org/ISO_9660)
+* [isofs](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/fs/isofs)
 
 ## License
 
