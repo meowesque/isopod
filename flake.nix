@@ -3,41 +3,67 @@
     flake-utils.url = "github:numtide/flake-utils";
     naersk.url = "github:nix-community/naersk";
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    rust-overlay.url = "github:oxalica/rust-overlay";
   };
 
-  outputs = { self, flake-utils, naersk, nixpkgs }:
-    flake-utils.lib.eachDefaultSystem (system:
+  outputs =
+    {
+      self,
+      flake-utils,
+      naersk,
+      nixpkgs,
+      rust-overlay,
+    }:
+    flake-utils.lib.eachDefaultSystem (
+      system:
       let
         pkgs = (import nixpkgs) {
           inherit system;
+          overlays = [
+            (import rust-overlay)
+          ];
         };
 
         naersk' = pkgs.callPackage naersk { };
-        
-        buildInputs = with pkgs; [ ];
 
-        nativeBuildInputs = with pkgs; [ ];
+        buildInputs = with pkgs; [
+        ];
+
+        nativeBuildInputs = with pkgs; [
+          (pkgs.rust-bin.stable.latest.default.override {
+            extensions = [
+              "rust-src"
+              "cargo"
+              "rustc"
+            ];
+          })
+        ];
       in
       rec {
         defaultPackage = packages.isopodcli;
-        packages =
-          {
-            isopodcli = naersk'.buildPackage {
-              src = ./.;
-              nativeBuildInputs = nativeBuildInputs;
-              buildInputs = buildInputs;
-            };
-            container = pkgs.dockerTools.buildImage
-              {
-                name = "isopodcli";
-                config = {
-                  entrypoint = [ "${packages.isopodcli}/bin/isopodcli" ];
-                };
-              };
+        packages = {
+          isopodcli = naersk'.buildPackage {
+            src = ./.;
+            nativeBuildInputs = nativeBuildInputs;
+            buildInputs = buildInputs;
           };
+          container = pkgs.dockerTools.buildImage {
+            name = "isopodcli";
+            config = {
+              entrypoint = [ "${packages.isopodcli}/bin/isopodcli" ];
+            };
+          };
+        };
 
         devShell = pkgs.mkShell {
-          nativeBuildInputs = with pkgs;
+          RUST_SRC_PATH = "${
+            pkgs.rust-bin.stable.latest.default.override {
+              extensions = [ "rust-src" ];
+            }
+          }/lib/rustlib/src/rust/library";
+
+          nativeBuildInputs =
+            with pkgs;
             [
               nixfmt
               cmake
@@ -45,8 +71,10 @@
               rustfmt
               cargo
               clippy
-              rust-analyzer 
-            ] ++ buildInputs ++ nativeBuildInputs;
+              rust-analyzer
+            ]
+            ++ buildInputs
+            ++ nativeBuildInputs;
         };
       }
     );
