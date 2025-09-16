@@ -1,0 +1,7 @@
+target
+data
+.direnv
+flake.lock
+.git
+.concatignore
+.concat.out
