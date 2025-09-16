@@ -1,5 +1,7 @@
 # isopod
 
+![Crates.io Version](https://img.shields.io/crates/v/isopod)
+
 ISO 9660:2023 library currently in development, awaiting stable release.
 
 ## Roadmap
