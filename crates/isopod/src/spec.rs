@@ -1,7 +1,9 @@
 //! Low-level ISO 9660 (& Joliet) filesystem specification structures and constants.
 
+pub const STARTING_SECTOR: u64 = 0x10;
+
 /// Recording date utilized within directory records.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct IsoPreciseDateTime {
   pub year: u16,
   pub month: u8,
@@ -10,12 +12,13 @@ pub struct IsoPreciseDateTime {
   pub minute: u8,
   pub second: u8,
   pub hundredths: u8,
+  pub offset: i8,
 }
 
 /// Date/Time format utilized in creation and modification dates.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct IsoDateTime {
-  pub years_since_1900: u16,
+  pub years_since_1900: u8,
   pub month: u8,
   pub day: u8,
   pub hour: u8,
@@ -37,7 +40,7 @@ pub enum VolumeDescriptorType {
 }
 
 impl VolumeDescriptorType {
-  pub fn from_u8(value: u8) -> Self {
+  pub(crate) fn from_u8(value: u8) -> Self {
     match value {
       0 => VolumeDescriptorType::BootRecord,
       1 => VolumeDescriptorType::PrimaryVolumeDescriptor,
@@ -49,7 +52,7 @@ impl VolumeDescriptorType {
   }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum VolumeDescriptorIdentifier {
   /// ISO 9660 file system.
   Cd001,
@@ -62,11 +65,11 @@ pub enum VolumeDescriptorIdentifier {
   /// Boot loader location and entry point address.
   Boot2,
   /// Denotes the end of the extended descriptor section.
-  Tea01
+  Tea01,
 }
 
 impl VolumeDescriptorIdentifier {
-  fn from_bytes(bytes: impl AsRef<[u8]>) -> Option<Self> {
+  pub(crate) fn from_bytes(bytes: impl AsRef<[u8]>) -> Option<Self> {
     Some(match bytes.as_ref() {
       b"CD001" => Self::Cd001,
       b"BEA01" => Self::Bea01,
@@ -80,7 +83,7 @@ impl VolumeDescriptorIdentifier {
 }
 
 bitflags::bitflags! {
-  #[derive(Debug)]
+  #[derive(Debug, Clone)]
   pub struct FileFlags: u8 {
     const EXISTENCE = 1 << 0;
     const DIRECTORY = 1 << 1;
@@ -90,11 +93,11 @@ bitflags::bitflags! {
     const MULTI_EXTENT = 1 << 7;
   }
 
-  #[derive(Debug)]
+  #[derive(Debug, Clone)]
   pub struct SupplementaryVolumeFlags: u8 {
-    /// Indicates that the escape sequences field within `SupplementaryVolumeDescriptor` 
+    /// Indicates that the escape sequences field within `SupplementaryVolumeDescriptor`
     /// specifies escape sequences registered according to ISO/IEC 2375.
-    /// 
+    ///
     /// If this bit is toggled to true, there will be at least one escape sequence
     /// not registered according to ISO/IEC 2375.
     const ESCAPE_SEQUENCES_COMPLIANT = 1 << 0;
@@ -107,7 +110,7 @@ bitflags::bitflags! {
   }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PrimaryVolumeDescriptor {
   /// Standard identifier.
   pub standard_identifier: VolumeDescriptorIdentifier,
@@ -118,7 +121,7 @@ pub struct PrimaryVolumeDescriptor {
   /// Identification of this volume.
   pub volume_identifier: String,
   /// Number of Logical Blocks in which the volume is recorded.
-  pub volume_space_size: u32, 
+  pub volume_space_size: u32,
   /// The size of the set in this logical volume (number of disks).
   pub volume_set_size: u16,
   /// The number of this disk in the Volume Set.
@@ -166,23 +169,25 @@ pub struct PrimaryVolumeDescriptor {
   /// for this volume set. If not specified all bytes should be `0x20`.
   pub bibliographic_file_identifier: [u8; 37],
   /// The date and time of when the volume was created
-  pub volume_creation_date: IsoDateTime,
+  pub volume_creation_date: IsoPreciseDateTime,
   /// The date and time of when the volume was last modified.
-  pub volume_modification_date: IsoDateTime,
+  pub volume_modification_date: IsoPreciseDateTime,
   /// The date and time after which this volume is considered to be obsolete. If not specified
   /// then the volume is never considered to be obsolete.
-  pub volume_expiration_date: IsoDateTime,
+  pub volume_expiration_date: IsoPreciseDateTime,
   /// The date and time after which the volume may be used. IF not specified, the volume may
   /// be used immediately.
-  pub volume_effective_date: IsoDateTime,
+  pub volume_effective_date: IsoPreciseDateTime,
   /// The directory records and path table version (always `0x01`).
   pub file_structure_version: u8,
   pub application_data: [u8; 512],
   pub reserved: [u8; 653],
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SupplementaryVolumeDescriptor {
+  pub standard_identifier: VolumeDescriptorIdentifier,
+  pub version: u8,
   pub volume_flags: SupplementaryVolumeFlags,
   pub system_identifier: String,
   pub volume_identifier: String,
@@ -213,7 +218,7 @@ pub struct SupplementaryVolumeDescriptor {
   pub reserved: [u8; 653],
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DirectoryRecord {
   pub record_length: u8,
   pub extended_attribute_record_length: u8,
@@ -225,7 +230,13 @@ pub struct DirectoryRecord {
   pub interleave_gap_size: u8,
   pub volume_sequence_number: u16,
   pub identifier_length: u8,
-  pub identifier: String
+  pub identifier: String,
+}
+
+impl DirectoryRecord {
+  pub fn is_directory(&self) -> bool {
+    self.file_flags.contains(FileFlags::DIRECTORY)
+  }
 }
 
 #[derive(Debug)]

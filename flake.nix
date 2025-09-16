@@ -4,6 +4,7 @@
     naersk.url = "github:nix-community/naersk";
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     rust-overlay.url = "github:oxalica/rust-overlay";
+    concatinator.url = "github:meowesque/concatinator";
   };
 
   outputs =
@@ -13,6 +14,7 @@
       naersk,
       nixpkgs,
       rust-overlay,
+      concatinator
     }:
     flake-utils.lib.eachDefaultSystem (
       system:
@@ -74,7 +76,8 @@
               rust-analyzer
             ]
             ++ buildInputs
-            ++ nativeBuildInputs;
+            ++ nativeBuildInputs
+            ++ [ concatinator.packages.${system}.concatinator ];
         };
       }
     );

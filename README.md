@@ -4,9 +4,6 @@ ISO 9660:2023 library currently in development, awaiting stable release.
 
 ## Roadmap
 
-* [ ] Incremental reading
-* [ ] Incremental writing/exporting
-* [ ] Modification (ie. modifying on disk)
 * [ ] Joliet support
 * [ ] Rock Ridge support
 * [ ] Exhaustive specification implementation documentation

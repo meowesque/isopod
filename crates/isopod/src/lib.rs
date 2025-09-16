@@ -1,873 +1,311 @@
 mod parse;
 mod read;
-mod write;
 mod spec;
+mod write;
 
-use parse::*;
-use std::borrow::Cow;
+use std::{cell::RefCell, rc::Rc};
 
-// TODO(meowesque): Allow this to be configurable
-const STARTING_SECTOR: usize = 0x10;
-const SECTOR_SIZE: usize = 2048;
-const VOLUME_DESCRIPTOR_SIZE: usize = 2048;
-const VOLUME_DESCRIPTOR_IDENTIFIER_SIZE: usize = 5;
+use parse::Parse;
 
-type Result<T> = std::result::Result<T, Error>;
+pub type Result<T, E> = std::result::Result<T, Error<E>>;
 
-#[derive(Debug)]
-pub enum Error {}
-
-#[derive(Debug)]
-struct IsoDateTime {
-  years_since_1900: u8,
-  month: u8,
-  day: u8,
-  hour: u8,
-  minute: u8,
-  second: u8,
-  /// Offset from GMT in 15 minute intervals from -48 (West) to +52 (East).
-  offset: i8,
+#[derive(Debug, thiserror::Error)]
+pub enum Error<T> {
+  #[error("Parse error")]
+  Parse {
+    //kind: nom::error::ErrorKind,
+  },
+  #[error("Read error: {0}")]
+  Read(#[from] T),
 }
 
-impl IsoDateTime {
-  fn parse(i: &[u8]) -> IResult<&[u8], Self> {
-    let (i, years_since_1900) = le_u8(i)?;
-    let (i, month) = le_u8(i)?;
-    let (i, day) = le_u8(i)?;
-    let (i, hour) = le_u8(i)?;
-    let (i, minute) = le_u8(i)?;
-    let (i, second) = le_u8(i)?;
-    let (i, offset) = le_i8(i)?;
-
-    Ok((
-      i,
-      Self {
-        years_since_1900,
-        month,
-        day,
-        hour,
-        minute,
-        second,
-        offset,
-      },
-    ))
-  }
+/// Detected ISO 9660 extension, if any.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Extension {
+  /// Microsoft Joliet extension.
+  Joliet,
+  /// Rock Ridge extension.
+  RockRidge,
 }
 
-#[derive(Debug)]
-struct IsoPreciseDateTime {
-  year: i32,
-  month: i32,
-  day: i32,
-  hour: i32,
-  minute: i32,
-  second: i32,
-  hundreths: i32,
-  offset: i8,
+/// Iterator over directory entries.
+pub struct DirectoryIter<'a, Storage> {
+  inner: Rc<spec::DirectoryRecord>,
+  offset: u64,
+  iso: &'a Iso<Storage>,
 }
 
-impl IsoPreciseDateTime {
-  fn parse(i: &[u8]) -> IResult<&[u8], Self> {
-    let (i, year) = ascii_i32(i, 4)?;
-    let (i, month) = ascii_i32(i, 2)?;
-    let (i, day) = ascii_i32(i, 2)?;
-    let (i, hour) = ascii_i32(i, 2)?;
-    let (i, minute) = ascii_i32(i, 2)?;
-    let (i, second) = ascii_i32(i, 2)?;
-    let (i, hundreths) = ascii_i32(i, 2)?;
-    let (i, offset) = le_i8(i)?;
+impl<'a, Storage> Iterator for DirectoryIter<'a, Storage>
+where
+  Storage: read::IsoRead,
+{
+  type Item = Result<DirectoryEntryRef<'a, Storage>, Storage::Error>;
 
-    Ok((
-      i,
-      Self {
-        year,
-        month,
-        day,
-        hour,
-        minute,
-        second,
-        hundreths,
-        offset,
-      },
-    ))
-  }
-}
+  fn next(&mut self) -> Option<Self::Item> {
+    assert!(
+      self.inner.is_directory(),
+      "DirectoryIter can only be used on directories"
+    );
 
-#[repr(u8)]
-#[derive(Debug)]
-enum VolumeDescriptorType {
-  BootRecord = 0,
-  PrimaryVolumeDescriptor = 1,
-  /// Supplementary volume descriptor, used by Joliet.
-  SupplementaryVolumeDescriptor = 2,
-  VolumePartitionDescriptor = 3,
-  Other(u8),
-  VolumeDescriptorSetTerminator = 255,
-}
+    (|| {
+      let mut sector = [0u8; 2048];
 
-impl VolumeDescriptorType {
-  fn from_u8(value: u8) -> Self {
-    match value {
-      0 => Self::BootRecord,
-      1 => Self::PrimaryVolumeDescriptor,
-      2 => Self::SupplementaryVolumeDescriptor,
-      3 => Self::VolumePartitionDescriptor,
-      255 => Self::VolumeDescriptorSetTerminator,
-      _ => Self::Other(value),
-    }
-  }
-}
+      let sector_ix = self.offset / 2048;
+      let bytes_offset = self.offset % 2048;
 
-#[derive(Debug)]
-enum VolumeDescriptorIdentifier {
-  /// ISO 9660 file system.
-  Cd001,
-  /// Extended descriptor section.
-  Bea01,
-  /// URF filesystem.
-  Nsr02,
-  /// UDF filesystem.
-  Nsr03,
-  /// Boot loader location and entry point address.
-  Boot2,
-  /// Denotes the end of the extended descriptor section.
-  Tea01,
-}
+      let read = self
+        .iso
+        .storage
+        .borrow_mut()
+        .read_sector(self.inner.extent_lba as u64 + sector_ix, &mut sector)?;
 
-impl VolumeDescriptorIdentifier {
-  fn from_bytes(bytes: impl AsRef<[u8]>) -> Option<Self> {
-    Some(match bytes.as_ref() {
-      b"CD001" => Self::Cd001,
-      b"BEA01" => Self::Bea01,
-      b"NSR02" => Self::Nsr02,
-      b"NSR03" => Self::Nsr03,
-      b"BOOT2" => Self::Boot2,
-      b"TEA01" => Self::Tea01,
-      _ => return None,
-    })
-  }
+      // TODO(meowesque): This wont work for anything larger than 2048 bytes
 
-  fn parse(i: &[u8]) -> IResult<&[u8], Self> {
-    let (i, bytes) = take(5usize).parse(i)?;
-
-    match Self::from_bytes(bytes) {
-      Some(id) => Ok((i, id)),
-      None => todo!(),
-    }
-  }
-}
-
-#[repr(u16)]
-#[derive(Debug)]
-enum DescriptorTagIdentifier {
-  PrimaryVolumeDescriptor = 0x0001,
-  AnchorVolumeDescriptorPointer = 0x0002,
-  VolumeDescriptorPointer = 0x0003,
-  ImplementationUseVolumeDescriptor = 0x0004,
-  PartitionDescriptor = 0x0005,
-  LogicalVolumeDescriptor = 0x0006,
-  UnallocatedSpaceDescriptor = 0x0007,
-  TerminatingDescriptor = 0x0008,
-  LogicalVolumeIntegrityDescriptor = 0x0009,
-  FileSetDescriptor = 0x0100,
-  FileIdentifierDescriptor = 0x0101,
-  AllocationExtentDescriptor = 0x0102,
-  IndirectEntry = 0x0103,
-  TerminalEntry = 0x0104,
-  FileEntry = 0x0105,
-  ExtendedAttributeHeaderDescriptor = 0x0106,
-  UnallocatedSpaceEntry = 0x0107,
-  SpaceBitmapDescriptor = 0x0108,
-  PartitionIntegrityEntry = 0x0109,
-  ExtendedFileEntry = 0x010A,
-  Other(u16),
-}
-
-bitflags::bitflags! {
-  struct FileFlags: u8 {
-    const EXISTENCE = 1 << 0;
-    const DIRECTORY = 1 << 1;
-    const ASSOCIATED_FILE = 1 << 2;
-    const RECORD = 1 << 3;
-    const PROTECTION = 1 << 4;
-    const MULTI_EXTENT = 1 << 7;
-  }
-}
-
-#[derive(Debug)]
-struct DescriptorTag {
-  tag_identifier: DescriptorTagIdentifier,
-  descriptor_version: u16,
-  tag_checksum: u8,
-  reserved: u8,
-  tag_serial_number: u16,
-  descriptor_crc: u16,
-  descriptor_crc_length: u16,
-  tag_location: u32,
-}
-
-impl DescriptorTag {}
-
-#[derive(Debug)]
-struct Extent {
-  /// Length in bytes of data pointed to.
-  length: u32,
-  /// Sector index of the data, relative to the start of the beginning of the volume.
-  location: u32,
-}
-
-#[derive(Debug)]
-struct AnchorVolumeDescriptor {
-  descriptor_tag: DescriptorTag,
-  main_volume_descriptor_sequence_extent: Extent,
-  reserve_volume_descriptor_sequence_extent: Extent,
-}
-
-/// Derived from [OSDev ISO 9660](https://wiki.osdev.org/ISO_9660).
-#[derive(Debug)]
-pub struct PrimaryVolumeDescriptor {
-  /// Standard identifier.
-  id: VolumeDescriptorIdentifier,
-  /// Version. (Always `0x01`).
-  version: u8,
-  /// Name of the system that can act upon sectors `0x00` to `0x0F` for the volume.
-  system_id: String,
-  /// Identification of this volume.
-  volume_identifier: String,
-  /// Number of Logical Blocks in which the volume is recorded.
-  volume_space_size: u32,
-  /// The size of the set in this logical volume (number of disks).
-  volume_set_size: u16,
-  /// The number of this disk in the Volume Set.
-  volume_sequence_number: u16,
-  /// The size in bytes of a logical block. NB: This means that
-  /// a logical block on a CD could be something other than 2 KiB!
-  logical_block_size: u16,
-  /// The size in bytes of the path table.
-  path_table_size: u32,
-  /// Location of Type-L Path Table. The path table to contains only little-endian values.
-  type_l_path_table_lba: u32,
-  /// LBA location of the optional path table. The path table
-  /// pointed to contains only little-endian values. Zero means
-  /// that no optional path table exists.
-  optional_type_l_path_table_lba: u32,
-  /// LBA location of the path table. The path tbale pointed to contains
-  /// only big-endian values.
-  type_m_path_table_lba: u32,
-  /// LBA location of the optional path table. The path table pointed
-  /// to contains only big-endian values. Zero means that no optional path table exists.
-  optional_type_m_path_table_lba: u32,
-  root_directory_entry: DirectoryRecord,
-  /// Identifier of the volume set of which this volume is a member.
-  volume_set_identifier: String,
-  /// The volume publisher. For extended publisher information, the first byte should
-  /// be `0x5F`, followed by the filename of a file in the root directory. If not
-  /// specified, all bytes should be `0x20`.
-  publisher_identifier: String,
-  /// The identifier of the person(s) who prepared the data for this volume. For
-  /// extended preparation information, the first byte should be `0x5F`, followed
-  /// by the filename of a file in the root directory. If not specified, all bytes
-  /// should be `0x20`.
-  data_preparer_identifier: String,
-  /// Identifies how the data is recorded on this volume. For extended information, the
-  /// first byte should be `0x5F`, followed by the filename of a file in the root directory.
-  /// If not specified all bytes should be `0x20`.
-  application_identifier: String,
-  /// Filename of a file in the root diretory that contains copyright information for this volume
-  /// set. If not specified, all bytes should be 0x20.
-  copyright_file_identifier: String,
-  /// Filename of a file in the root directory that contains abstract information for this volum
-  /// set. If not specified, all bytes should be `0x20`.
-  abstract_file_identifier: [u8; 36],
-  /// Filename of a file in the root directory that contains bibliographic information
-  /// for this volume set. If not specified all bytes should be `0x20`.
-  bibliographic_file_identifier: [u8; 37],
-  /// The date and time of when the volume was created
-  volume_creation_date: IsoPreciseDateTime,
-  /// The date and time of when the volume was last modified.
-  volume_modification_date: IsoPreciseDateTime,
-  /// The date and time after which this volume is considered to be obsolete. If not specified
-  /// then the volume is never considered to be obsolete.
-  volume_expiration_date: IsoPreciseDateTime,
-  /// The date and time after which the volume may be used. IF not specified, the volume may
-  /// be used immediately.
-  volume_effective_date: IsoPreciseDateTime,
-  /// The directory records and path table version (always `0x01`).
-  file_structure_version: u8,
-  application_used: [u8; 512],
-  reserved: [u8; 653],
-}
-
-impl PrimaryVolumeDescriptor {
-  fn parse(i: &[u8]) -> IResult<&[u8], Self> {
-    let (i, _vd_type) = take(1usize).parse(i)?;
-    let (i, id) = VolumeDescriptorIdentifier::parse(i)?;
-    let (i, version) = le_u8(i)?;
-    let (i, _unused1) = take(1usize).parse(i)?;
-    let (i, system_id) = take_string_n(i, 32)?;
-
-    let (i, volume_identifier) = take_string_n(i, 32)?;
-    let (i, _unused2) = take(8usize).parse(i)?;
-    let (i, volume_space_size) = lsb_msb_u32(i)?;
-    let (i, _unused3) = take(32usize).parse(i)?;
-    let (i, volume_set_size) = lsb_msb_u16(i)?;
-    let (i, volume_sequence_number) = lsb_msb_u16(i)?;
-
-    let (i, logical_block_size) = lsb_msb_u16(i)?;
-    let (i, path_table_size) = lsb_msb_u32(i)?;
-
-    let (i, type_l_path_table_lba) = le_u32(i)?;
-    let (i, optional_type_l_path_table_lba) = le_u32(i)?;
-    let (i, type_m_path_table_lba) = be_u32(i)?;
-    let (i, optional_type_m_path_table_lba) = be_u32(i)?;
-
-    let (i, root_directory_entry) = DirectoryRecord::parse(i)?;
-
-    let (i, volume_set_identifier) = take_string_n(i, 128)?;
-    let (i, publisher_identifier) = take_string_n(i, 128)?;
-    let (i, data_preparer_identifier) = take_string_n(i, 128)?;
-    let (i, application_identifier) = take_string_n(i, 128)?;
-    let (i, copyright_file_identifier) = take_string_n(i, 38)?;
-    let (i, abstract_file_identifier) = take(36usize).parse(i)?;
-    let (i, bibliographic_file_identifier) = take(37usize).parse(i)?;
-
-    let (i, volume_creation_date) = IsoPreciseDateTime::parse(i)?;
-    let (i, volume_modification_date) = IsoPreciseDateTime::parse(i)?;
-    let (i, volume_expiration_date) = IsoPreciseDateTime::parse(i)?;
-    let (i, volume_effective_date) = IsoPreciseDateTime::parse(i)?;
-
-    let (i, file_structure_version) = le_u8(i)?;
-
-    let (i, _unused4) = take(1usize).parse(i)?;
-
-    let (i, application_used) = take(512usize).parse(i)?;
-
-    // TODO(meowesque): Implement parsing for ISO 9660 extensions.
-    let (i, reserved) = take(653usize).parse(i)?;
-
-    Ok((
-      i,
-      Self {
-        id,
-        version,
-        system_id: system_id.to_owned(),
-        volume_identifier: volume_identifier.to_owned(),
-        volume_space_size,
-        volume_set_size,
-        volume_sequence_number,
-        logical_block_size,
-        path_table_size,
-        type_l_path_table_lba,
-        optional_type_l_path_table_lba,
-        type_m_path_table_lba,
-        optional_type_m_path_table_lba,
-        root_directory_entry,
-        volume_set_identifier: volume_set_identifier.to_owned(),
-        publisher_identifier: publisher_identifier.to_owned(),
-        data_preparer_identifier: data_preparer_identifier.to_owned(),
-        application_identifier: application_identifier.to_owned(),
-        copyright_file_identifier: copyright_file_identifier.to_owned(),
-        abstract_file_identifier: abstract_file_identifier.try_into().unwrap(),
-        bibliographic_file_identifier: bibliographic_file_identifier.try_into().unwrap(),
-        volume_creation_date,
-        volume_modification_date,
-        volume_expiration_date,
-        volume_effective_date,
-        file_structure_version,
-        application_used: application_used.try_into().unwrap(),
-        reserved: reserved.try_into().unwrap(),
-      },
-    ))
-  }
-}
-
-#[derive(Debug)]
-pub struct SupplementaryVolumeDescriptor {
-  volume_flags: u8,
-  system_id: String,
-  volume_id: String,
-  volume_space_size: u32,
-  escape_sequences: [u8; 32],
-  volume_set_size: u16,
-  volume_sequence_number: u16,
-  logical_block_size: u16,
-  path_table_size: u32,
-  /// Location of Type-L Path Table. The path table to contains only little-endian values.
-  type_l_path_table_lba: u32,
-  /// LBA location of the optional path table. The path table
-  /// pointed to contains only little-endian values. Zero means
-  /// that no optional path table exists.
-  optional_type_l_path_table_lba: u32,
-  /// LBA location of the path table. The path tbale pointed to contains
-  /// only big-endian values.
-  type_m_path_table_lba: u32,
-  /// LBA location of the optional path table. The path table pointed
-  /// to contains only big-endian values. Zero means that no optional path table exists.
-  optional_type_m_path_table_lba: u32,
-  root_directory_record: DirectoryRecord,
-  volume_set_id: String,
-  publisher_id: String,
-  data_preparer_id: String,
-  application_id: String,
-  copyright_file_id: String,
-  abstract_file_id: [u8; 36],
-  bibliographic_file_id: [u8; 37],
-  volume_creation_date: IsoPreciseDateTime,
-  volume_modification_date: IsoPreciseDateTime,
-  volume_expiration_date: IsoPreciseDateTime,
-  volume_effective_date: IsoPreciseDateTime,
-  file_structure_version: u8,
-  application_used: [u8; 512],
-  reserved: [u8; 653],
-}
-
-impl SupplementaryVolumeDescriptor {
-  fn parse(i: &[u8]) -> IResult<&[u8], Self> {
-    let (i, _vd_type) = take(1usize).parse(i)?;
-    let (i, id) = VolumeDescriptorIdentifier::parse(i)?;
-    let (i, version) = le_u8(i)?;
-    let (i, volume_flags) = le_u8(i)?;
-    let (i, system_id) = take_utf16be_n(i, 32)?;
-
-    let (i, volume_id) = take_utf16be_n(i, 32)?;
-    let (i, _unused1) = take(8usize).parse(i)?;
-    let (i, volume_space_size) = lsb_msb_u32(i)?;
-    let (i, escape_sequences) = take(32usize).parse(i)?;
-    let (i, volume_set_size) = lsb_msb_u16(i)?;
-    let (i, volume_sequence_number) = lsb_msb_u16(i)?;
-
-    let (i, logical_block_size) = lsb_msb_u16(i)?;
-    let (i, path_table_size) = lsb_msb_u32(i)?;
-
-    let (i, type_l_path_table_lba) = le_u32(i)?;
-    let (i, optional_type_l_path_table_lba) = le_u32(i)?;
-    let (i, type_m_path_table_lba) = be_u32(i)?;
-    let (i, optional_type_m_path_table_lba) = be_u32(i)?;
-
-    let (i, root_directory_record) = DirectoryRecord::parse(i)?;
-
-    let (i, volume_set_id) = take_utf16be_n(i, 128)?;
-    let (i, publisher_id) = take_utf16be_n(i, 128)?;
-    let (i, data_preparer_id) = take_utf16be_n(i, 128)?;
-    let (i, application_id) = take_utf16be_n(i, 128)?;
-    let (i, copyright_file_id) = take_utf16be_n(i, 38)?;
-    let (i, abstract_file_id) = take(36usize).parse(i)?;
-    let (i, bibliographic_file_id) = take(37usize).parse(i)?;
-
-    let (i, volume_creation_date) = IsoPreciseDateTime::parse(i)?;
-    let (i, volume_modification_date) = IsoPreciseDateTime::parse(i)?;
-    let (i, volume_expiration_date) = IsoPreciseDateTime::parse(i)?;
-    let (i, volume_effective_date) = IsoPreciseDateTime::parse(i)?;
-
-    let (i, file_structure_version) = le_u8(i)?;
-
-    let (i, _unused4) = take(1usize).parse(i)?;
-
-    let (i, application_used) = take(512usize).parse(i)?;
-
-    // TODO(meowesque): Implement parsing for ISO 9660 extensions.
-    let (i, reserved) = take(653usize).parse(i)?;
-
-    Ok((
-      i,
-      Self {
-        volume_flags,
-        system_id: system_id.to_string(),
-        volume_id: volume_id.to_string(),
-        volume_space_size,
-        escape_sequences: escape_sequences.try_into().unwrap(),
-        volume_set_size,
-        volume_sequence_number,
-        logical_block_size,
-        path_table_size,
-        type_l_path_table_lba,
-        optional_type_l_path_table_lba,
-        type_m_path_table_lba,
-        optional_type_m_path_table_lba,
-        root_directory_record,
-        volume_set_id: volume_set_id.to_owned(),
-        publisher_id: publisher_id.to_owned(),
-        data_preparer_id: data_preparer_id.to_owned(),
-        application_id: application_id.to_owned(),
-        copyright_file_id: copyright_file_id.to_owned(),
-        abstract_file_id: abstract_file_id.try_into().unwrap(),
-        bibliographic_file_id: bibliographic_file_id.try_into().unwrap(),
-        volume_creation_date,
-        volume_modification_date,
-        volume_expiration_date,
-        volume_effective_date,
-        file_structure_version,
-        application_used: application_used.try_into().unwrap(),
-        reserved: reserved.try_into().unwrap(),
-      },
-    ))
-  }
-}
-
-struct LogicalVolumeDescriptor {
-  descriptor_tag: DescriptorTag,
-  volume_sequence_number: u32,
-  // TODO(meowesque): Finish
-  descriptor_character_set: [u8; 64],
-  logical_volume_identifier: [u8; 128],
-  logical_block_size: u32,
-  domain_identifier: [u8; 32],
-  logical_volume_contents_use: [u8; 16],
-  map_table_length: u32,
-  number_of_partition_maps: u16,
-  implementation_identifier: [u8; 32],
-  implementation_use: [u8; 128],
-  integrity_sequence_extent: Extent,
-}
-
-#[derive(Debug)]
-pub enum VolumeDescriptor {
-  PrimaryVolumeDescriptor(PrimaryVolumeDescriptor),
-  SupplementaryVolumeDescriptor(SupplementaryVolumeDescriptor),
-}
-
-impl VolumeDescriptor {
-  fn parse(i: &[u8]) -> IResult<&[u8], Option<Self>> {
-    let i = &i.as_ref()[..VOLUME_DESCRIPTOR_SIZE];
-    // The type is the first byte of any volume descriptor
-    let vd_type = VolumeDescriptorType::from_u8(i[0]);
-
-    match vd_type {
-      VolumeDescriptorType::PrimaryVolumeDescriptor => {
-        let (i, pvd) = PrimaryVolumeDescriptor::parse(i)?;
-
-        Ok((i, Some(Self::PrimaryVolumeDescriptor(pvd))))
+      if bytes_offset >= read as u64 {
+        return Ok(None);
       }
-      VolumeDescriptorType::SupplementaryVolumeDescriptor => {
-        let (i, svd) = SupplementaryVolumeDescriptor::parse(i)?;
 
-        Ok((i, Some(Self::SupplementaryVolumeDescriptor(svd))))
+      let record_bytes = &sector[bytes_offset as usize..read as usize];
+
+      let (remaining, record) = spec::DirectoryRecord::parse(record_bytes).map_err(|e| {
+        dbg!(e);
+        // TODO(meowesque): Handle
+        Error::Parse {}
+      })?;
+
+      if record.record_length == 0 {
+        // Padding, skip to next sector
+        self.offset += 2048 - bytes_offset;
+        return self.next().transpose();
       }
-      VolumeDescriptorType::VolumeDescriptorSetTerminator => Ok((i, None)),
-      _ => todo!(),
+
+      match () {
+        _ if record.identifier == "\u{0}" || record.identifier == "\u{1}" => {
+          // Special entries, skip
+          self.offset += record.record_length as u64;
+          return self.next().transpose();
+        }
+        _ if record.file_flags.contains(spec::FileFlags::DIRECTORY) => {
+          self.offset += record.record_length as u64;
+          return Ok(Some(DirectoryEntryRef::Directory(DirectoryRef {
+            inner: Rc::new(record),
+            iso: self.iso,
+          })));
+        }
+        _ if record.file_flags.is_empty() => {
+          self.offset += record.record_length as u64;
+          return Ok(Some(DirectoryEntryRef::File(FileRef {
+            inner: Rc::new(record),
+            iso: self.iso,
+          })));
+        }
+        _ => todo!(),
+      }
+
+      Ok(None)
+    })()
+    .transpose()
+  }
+}
+
+pub struct FileRef<'a, Storage> {
+  inner: Rc<spec::DirectoryRecord>,
+  iso: &'a Iso<Storage>,
+}
+
+impl<'a, Storage> FileRef<'a, Storage> {
+  pub fn name(&self) -> &str {
+    let name = self
+      .inner
+      .as_ref()
+      .identifier
+      .as_str()
+      .trim_end_matches(char::is_numeric);
+
+    &name[..name.len() - 1]
+  }
+
+  pub fn revision(&self) -> u8 {
+    self
+      .inner
+      .as_ref()
+      .identifier
+      .as_str()
+      .rsplit_once(';')
+      .and_then(|(_, rev)| rev.parse().ok())
+      .unwrap_or(1)
+  }
+}
+
+pub enum DirectoryEntryRef<'a, Storage> {
+  File(FileRef<'a, Storage>),
+  Directory(DirectoryRef<'a, Storage>),
+}
+
+pub struct DirectoryRef<'a, Storage> {
+  inner: Rc<spec::DirectoryRecord>,
+  iso: &'a Iso<Storage>,
+}
+
+impl<'a, Storage> DirectoryRef<'a, Storage> {
+  pub fn name(&self) -> impl AsRef<str> + '_ {
+    self.inner.as_ref().identifier.as_str()
+  }
+
+  pub fn entries(&self) -> DirectoryIter<'a, Storage> {
+    DirectoryIter {
+      inner: self.inner.clone(),
+      offset: 0,
+      iso: self.iso,
     }
   }
 }
 
-/// The Path Table contains a well-ordered sequence of records describing every directory extent on the CD.
-/// There are some exceptions with this: the Path Table can only contain 65536 records, due to the length of the `parent_directory_number` field.
-#[derive(Debug)]
-struct PathTableRecord {
-  /// Length of Directory Identifier.
-  directory_identifier_length: u8,
-  /// Extended Attribute Record Length.
-  extended_attribute_record_length: u8,
-  /// Location of Extent (LBA). This is in a different format depending on
-  /// whether this is the L-Table or M-Table.
-  extent_lba: u32,
-  /// Directory number of parent directory (an index in to the path table).
-  /// This is the field that limits the table to `65536` records.
-  parent_directory_number: u16,
-  directory_name: String,
+pub struct PrimaryVolumeRef<'a, Storage> {
+  inner: &'a spec::PrimaryVolumeDescriptor,
+  iso: &'a Iso<Storage>,
 }
 
-impl PathTableRecord {
-  fn parse(i: &[u8]) -> IResult<&[u8], Self> {
-    let (i, directory_identifier_length) = le_u8(i)?;
-    let (i, extended_attribute_record_length) = le_u8(i)?;
-    let (i, extent_lba) = le_u32(i)?;
-    let (i, parent_directory_number) = le_u16(i)?;
-    let (i, directory_name) = take_string_n(i, directory_identifier_length as usize)?;
-    let (i, _padding) = take(1usize).parse(i)?;
+impl<'a, Storage> PrimaryVolumeRef<'a, Storage> {
+  pub fn identifier(&self) -> impl AsRef<str> + '_ {
+    self.inner.volume_identifier.as_str()
+  }
 
-    Ok((
-      i,
-      Self {
-        directory_identifier_length,
-        extended_attribute_record_length,
-        extent_lba,
-        parent_directory_number,
-        directory_name: directory_name.to_owned(),
-      },
-    ))
+  /// Retrieve the volume descriptor.
+  pub fn descriptor(&self) -> &spec::PrimaryVolumeDescriptor {
+    self.inner
+  }
+
+  /// Retrieve the root directory of the volume.
+  pub fn root(&self) -> DirectoryRef<'a, Storage> {
+    DirectoryRef {
+      inner: Rc::new(self.inner.root_directory_record.clone()),
+      iso: self.iso,
+    }
   }
 }
 
-/// Date time used within `DirectoryRecord`.
-struct DirectoryRecordDateTime {
-  years_since_1900: u8,
-  month: u8,
-  day: u8,
-  hour: u8,
-  minute: u8,
-  second: u8,
-  /// Offset from GMT in 15 minute intervals from `-48` (West) to `+52` (East).
-  gmt_offset: i8,
+pub struct SupplementaryVolumeRef<'a, Storage> {
+  inner: &'a spec::SupplementaryVolumeDescriptor,
+  iso: &'a Iso<Storage>,
 }
 
-#[derive(Debug)]
-struct DirectoryRecord {
-  record_length: u8,
-  extended_attribute_record_length: u8,
-  extent_lba: u32,
-  extent_length: u32,
-
-  recording_date: IsoDateTime,
-
-  file_flags: u8,
-
-  file_unit_size: u8,
-  interleave_gap_size: u8,
-
-  volume_sequence_number: u16,
-
-  identifier_length: u8,
-  identifier: String,
-  // TODO(meowesque): ISO 9660 extensions
-}
-
-impl DirectoryRecord {
-  fn parse(i: &[u8]) -> IResult<&[u8], Self> {
-    let i_oldlen = i.len();
-
-    let (i, record_length) = le_u8(i)?;
-    let (i, extended_attribute_record_length) = le_u8(i)?;
-    let (i, extent_lba) = lsb_msb_u32(i)?;
-    let (i, extent_length) = lsb_msb_u32(i)?;
-
-    let (i, recording_date) = IsoDateTime::parse(i)?;
-
-    let (i, file_flags) = le_u8(i)?;
-
-    let (i, file_unit_size) = le_u8(i)?;
-    let (i, interleave_gap_size) = le_u8(i)?;
-
-    let (i, volume_sequence_number) = lsb_msb_u16(i)?;
-
-    let (i, identifier_length) = le_u8(i)?;
-    let (i, identifier) = take_string_n(i, identifier_length as usize)?;
-
-    Ok((
-      i,
-      Self {
-        record_length,
-        extended_attribute_record_length,
-        extent_lba,
-        extent_length,
-        recording_date,
-        file_flags,
-        file_unit_size,
-        interleave_gap_size,
-        volume_sequence_number,
-        identifier_length,
-        identifier: identifier.to_owned(),
-      },
-    ))
+impl<'a, Storage> SupplementaryVolumeRef<'a, Storage> {
+  pub fn identifier(&self) -> impl AsRef<str> + '_ {
+    self.inner.volume_identifier.as_str()
   }
 
-  fn parse_ext(i: &[u8]) -> IResult<&[u8], Self> {
-    let i_oldlen = i.len();
+  /// Retrieve the volume descriptor.
+  pub fn descriptor(&self) -> &spec::SupplementaryVolumeDescriptor {
+    self.inner
+  }
 
-    let (i, record_length) = le_u8(i)?;
-    let (i, extended_attribute_record_length) = le_u8(i)?;
-    let (i, extent_lba) = lsb_msb_u32(i)?;
-    let (i, extent_length) = lsb_msb_u32(i)?;
-
-    let (i, recording_date) = IsoDateTime::parse(i)?;
-
-    let (i, file_flags) = le_u8(i)?;
-
-    let (i, file_unit_size) = le_u8(i)?;
-    let (i, interleave_gap_size) = le_u8(i)?;
-
-    let (i, volume_sequence_number) = lsb_msb_u16(i)?;
-
-    let (i, identifier_length) = le_u8(i)?;
-    let (i, identifier) = take_string_n(i, identifier_length as usize)?;
-
-    let (i, _padding) = take(1usize).parse(i)?;
-
-    let (i, _system_use) = take(dbg!((record_length as usize)
-      .saturating_sub(i_oldlen - i.len())
-      .saturating_sub(identifier_length as usize)))
-    .parse(i)?;
-
-    Ok((
-      i,
-      Self {
-        record_length,
-        extended_attribute_record_length,
-        extent_lba,
-        extent_length,
-        recording_date,
-        file_flags,
-        file_unit_size,
-        interleave_gap_size,
-        volume_sequence_number,
-        identifier_length,
-        identifier: identifier.to_owned(),
-      },
-    ))
+  /// Retrieve the root directory of the volume.
+  pub fn root(&self) -> DirectoryRef<'a, Storage> {
+    DirectoryRef {
+      inner: Rc::new(self.inner.root_directory_record.clone()),
+      iso: self.iso,
+    }
   }
 }
 
-#[derive(Debug)]
-pub struct Options {
-  pub sector_size: u16,
+pub enum VolumeRef<'a, Storage> {
+  Primary(PrimaryVolumeRef<'a, Storage>),
+  Supplementary(SupplementaryVolumeRef<'a, Storage>),
 }
 
-impl Default for Options {
-  fn default() -> Self {
-    Self { sector_size: 2048 }
+impl<'a, Storage> VolumeRef<'a, Storage> {
+  pub fn descriptor(&self) -> spec::VolumeDescriptor {
+    match self {
+      VolumeRef::Primary(v) => spec::VolumeDescriptor::Primary(v.inner.clone()),
+      VolumeRef::Supplementary(v) => spec::VolumeDescriptor::Supplementary(v.inner.clone()),
+    }
   }
 }
 
-// https://github.com/Adam-Vandervorst/PathMap/blob/master/src/arena_compact.rs#L625-L626
+pub struct VolumesIter<'a, Storage> {
+  inner: std::slice::Iter<'a, VolumeRef<'a, Storage>>,
+}
+
 pub struct Iso<Storage> {
-  options: Options,
-  storage: Storage,
-}
-
-impl<Storage> Iso<Storage> {
-  pub fn new(options: Options, storage: Storage) -> Self {
-    Self { options, storage }
-  }
+  extension: Option<Extension>,
+  storage: RefCell<Storage>,
+  volume_descriptors: Vec<spec::VolumeDescriptor>,
 }
 
 impl<Storage> Iso<Storage>
 where
-  Storage: AsRef<[u8]>,
+  Storage: read::IsoRead,
 {
-  pub fn storage_ref<'a>(&'a self) -> impl AsRef<[u8]> + 'a {
-    self.storage.as_ref()
+  pub fn open(storage: Storage) -> Result<Self, Storage::Error> {
+    // TODO(meowesque): Begin volume_descriptors discovery
+    let mut iso = Self {
+      extension: None,
+      storage: RefCell::new(storage),
+      volume_descriptors: vec![],
+    };
+
+    iso.scan()?;
+
+    Ok(iso)
   }
 
-  pub fn scan_volumes(&self) -> Result<Vec<VolumeDescriptor>> {
-    let storage = &self.storage.as_ref()[STARTING_SECTOR * self.options.sector_size as usize..];
-
-    let mut position = 0;
-    let mut volumes = Vec::new();
-
-    while position < storage.len() || storage[position] != 255
-    /* TODO(meowesque): Unreadable, lazy */
-    {
-      let descriptor_bytes = &storage[position..position + VOLUME_DESCRIPTOR_SIZE];
-      let (_, Some(volume_descriptor)) = VolumeDescriptor::parse(descriptor_bytes).expect("Uh")
-      else {
-        break;
-      };
-
-      println!("{:?}", &volume_descriptor);
-
-      volumes.push(volume_descriptor);
-      position += VOLUME_DESCRIPTOR_SIZE;
-    }
-
-    Ok(volumes)
-  }
-
-  pub fn scan_path_table(&self, lba: usize, size: usize) -> Result<Vec<PathTableRecord>> {
-    let storage = &self.storage.as_ref()[lba * self.options.sector_size as usize..];
-
-    let mut position = 0;
-    let mut records = Vec::new();
-
-    while position < size {
-      let (i, record) = PathTableRecord::parse(&storage[position..]).expect("uhh");
-
-      /*
-      dbg!(
-        DirectoryRecord::parse(
-          &self.storage.as_ref()
-            [dbg!(record.extent_lba) as usize * self.options.sector_size as usize..]
-        )
-        .expect("uhh")
-        .1
-      ); */
-
-      records.push(dbg!(record));
-      position += storage.len() - i.len();
-    }
-
-    Ok(records)
-  }
-
-  pub fn recurse_directories(&self, record: &DirectoryRecord) -> Result<()> {
-    let storage =
-      &self.storage.as_ref()[record.extent_lba as usize * self.options.sector_size as usize..];
-
-    let mut position = 0;
-
-    while position < record.extent_length as usize {
-      let (i, record) = DirectoryRecord::parse(&storage[position..]).expect("uhh");
-
-      println!("{:#?}", record);
-
-      /*if record.file_flags & FileFlags::DIRECTORY.bits() != 0 {
-        if record.identifier != "\u{0}" && record.identifier != "\u{1}" {
-          self.recurse_directories(&record)?;
+  pub fn volumes<'a>(&'a self) -> impl Iterator<Item = VolumeRef<'a, Storage>> {
+    self
+      .volume_descriptors
+      .iter()
+      .map(|descriptor| match descriptor {
+        spec::VolumeDescriptor::Primary(v) => VolumeRef::Primary(PrimaryVolumeRef {
+          inner: v,
+          iso: self,
+        }),
+        spec::VolumeDescriptor::Supplementary(v) => {
+          VolumeRef::Supplementary(SupplementaryVolumeRef {
+            inner: v,
+            iso: self,
+          })
         }
-      }*/
-
-      /*
-      if record.file_flags == 0 {
-        dbg!(str::from_utf8(
-          &self.storage.as_ref()[record.extent_lba as usize * self.options.sector_size as usize
-            ..record.extent_lba as usize * self.options.sector_size as usize
-              + record.extent_length as usize]
-        )
-        .unwrap());
-      }() */
-
-      if record.file_flags == 2 && record.identifier != "\u{0}" && record.identifier != "\u{1}" {
-        let record_2 = DirectoryRecord::parse(
-          &self.storage.as_ref()[record.extent_lba as usize * self.options.sector_size as usize
-            ..record.extent_lba as usize * self.options.sector_size as usize
-              + record.extent_length as usize],
-        )
-        .expect("uhh")
-        .1;
-
-        self.recurse_directories(&record_2)?;
-      }
-
-      /*
-      if record.file_flags == 2 {
-        let record_2 = DirectoryRecord::parse(
-          &self.storage.as_ref()
-            [record.extent_lba as usize * self.options.sector_size as usize..],
-        ).expect("uhh").1;
-
-        self.recurse_directories(&record_2)?;
-      } */
-
-      if record.record_length == 0 {
-        break;
-      }
-
-      position += record.record_length as usize;
-    }
-
-    Ok(())
+      })
   }
 
-  pub fn read(&self) -> Result<()> {
-    let volumes = self.scan_volumes()?;
+  pub fn scan(&mut self) -> Result<(), Storage::Error> {
+    let mut sector = [0u8; 2048];
+    let mut sector_ix = 0;
+    let mut volumes = vec![];
 
-    for volume in volumes {
+    loop {
+      let read = self
+        .storage
+        .borrow_mut()
+        .read_sector(0x10 + sector_ix, &mut sector)?;
+
+      match () {
+        // End of input
+        _ if read == 0 => break,
+        // Unexpected short read
+        _ if read < 2048 => {
+          log::warn!("Unexpected short read ({}) expected 2048", read);
+          break;
+        }
+        _ => {}
+      }
+
+      let (_, volume) = spec::VolumeDescriptor::parse(&sector).map_err(|e| {
+        dbg!(e);
+        // TODO(meowesque): Handle
+        Error::Parse {}
+      })?;
+
       match volume {
-        VolumeDescriptor::PrimaryVolumeDescriptor(pvd) => {
-          let path_table_records = self.scan_path_table(
-            pvd.type_l_path_table_lba as usize,
-            pvd.path_table_size as usize,
-          )?;
-          println!("{:?}", path_table_records);
-
-          self.recurse_directories(&pvd.root_directory_entry)?;
-        }
-        VolumeDescriptor::SupplementaryVolumeDescriptor(svd) => {
-          println!("SVD: {:?}", svd);
-        }
+        Some(v) => volumes.push(v),
+        None => break,
       }
+
+      sector_ix += 1;
     }
+
+    self.volume_descriptors = volumes;
 
     Ok(())
   }
 }
-
-impl<Storage> Iso<Storage> where Storage: std::io::Write {}
