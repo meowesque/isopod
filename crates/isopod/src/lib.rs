@@ -19,18 +19,27 @@ pub enum Error<T> {
   Read(#[from] T),
 }
 
-/// Detected ISO 9660 extension, if any.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Extension {
-  /// Microsoft Joliet extension.
-  Joliet,
-  /// Rock Ridge extension.
-  RockRidge,
+bitflags::bitflags! {
+  /// Supported extensions.
+  pub struct Extensions: u8 {
+    /// No extensions.
+    const NONE = 0;
+    /// Rock Ridge extensions.
+    const ROCK_RIDGE = 1 << 0;
+    /// Joliet extensions.
+    const JOLIET = 1 << 1;
+  }
+}
+
+impl Default for Extensions {
+  fn default() -> Self {
+    Self::NONE
+  }
 }
 
 /// Iterator over directory entries.
 pub struct DirectoryIter<'a, Storage> {
-  inner: Rc<spec::DirectoryRecord>,
+  inner: spec::DirectoryRecord,
   offset: u64,
   iso: &'a Iso<Storage>,
 }
@@ -88,14 +97,14 @@ where
         _ if record.file_flags.contains(spec::FileFlags::DIRECTORY) => {
           self.offset += record.record_length as u64;
           return Ok(Some(DirectoryEntryRef::Directory(DirectoryRef {
-            inner: Rc::new(record),
+            inner: record,
             iso: self.iso,
           })));
         }
         _ if record.file_flags.is_empty() => {
           self.offset += record.record_length as u64;
           return Ok(Some(DirectoryEntryRef::File(FileRef {
-            inner: Rc::new(record),
+            inner: record,
             iso: self.iso,
           })));
         }
@@ -109,7 +118,7 @@ where
 }
 
 pub struct FileRef<'a, Storage> {
-  inner: Rc<spec::DirectoryRecord>,
+  inner: spec::DirectoryRecord,
   iso: &'a Iso<Storage>,
 }
 
@@ -117,7 +126,6 @@ impl<'a, Storage> FileRef<'a, Storage> {
   pub fn name(&self) -> &str {
     let name = self
       .inner
-      .as_ref()
       .identifier
       .as_str()
       .trim_end_matches(char::is_numeric);
@@ -128,7 +136,6 @@ impl<'a, Storage> FileRef<'a, Storage> {
   pub fn revision(&self) -> u8 {
     self
       .inner
-      .as_ref()
       .identifier
       .as_str()
       .rsplit_once(';')
@@ -143,13 +150,13 @@ pub enum DirectoryEntryRef<'a, Storage> {
 }
 
 pub struct DirectoryRef<'a, Storage> {
-  inner: Rc<spec::DirectoryRecord>,
+  inner: spec::DirectoryRecord,
   iso: &'a Iso<Storage>,
 }
 
 impl<'a, Storage> DirectoryRef<'a, Storage> {
-  pub fn name(&self) -> impl AsRef<str> + '_ {
-    self.inner.as_ref().identifier.as_str()
+  pub fn name(&self) -> &str {
+    self.inner.identifier.as_str()
   }
 
   pub fn entries(&self) -> DirectoryIter<'a, Storage> {
@@ -179,7 +186,7 @@ impl<'a, Storage> PrimaryVolumeRef<'a, Storage> {
   /// Retrieve the root directory of the volume.
   pub fn root(&self) -> DirectoryRef<'a, Storage> {
     DirectoryRef {
-      inner: Rc::new(self.inner.root_directory_record.clone()),
+      inner: self.inner.root_directory_record.clone(),
       iso: self.iso,
     }
   }
@@ -203,46 +210,30 @@ impl<'a, Storage> SupplementaryVolumeRef<'a, Storage> {
   /// Retrieve the root directory of the volume.
   pub fn root(&self) -> DirectoryRef<'a, Storage> {
     DirectoryRef {
-      inner: Rc::new(self.inner.root_directory_record.clone()),
+      inner: self.inner.root_directory_record.clone(),
       iso: self.iso,
     }
   }
 }
 
-pub enum VolumeRef<'a, Storage> {
-  Primary(PrimaryVolumeRef<'a, Storage>),
-  Supplementary(SupplementaryVolumeRef<'a, Storage>),
-}
-
-impl<'a, Storage> VolumeRef<'a, Storage> {
-  pub fn descriptor(&self) -> spec::VolumeDescriptor {
-    match self {
-      VolumeRef::Primary(v) => spec::VolumeDescriptor::Primary(v.inner.clone()),
-      VolumeRef::Supplementary(v) => spec::VolumeDescriptor::Supplementary(v.inner.clone()),
-    }
-  }
-}
-
-pub struct VolumesIter<'a, Storage> {
-  inner: std::slice::Iter<'a, VolumeRef<'a, Storage>>,
-}
-
 pub struct Iso<Storage> {
-  extension: Option<Extension>,
+  extensions: Extensions,
   storage: RefCell<Storage>,
-  volume_descriptors: Vec<spec::VolumeDescriptor>,
+  pvd: Option<spec::PrimaryVolumeDescriptor>,
+  svd: Option<spec::SupplementaryVolumeDescriptor>,
 }
 
 impl<Storage> Iso<Storage>
 where
   Storage: read::IsoRead,
 {
-  pub fn open(storage: Storage) -> Result<Self, Storage::Error> {
-    // TODO(meowesque): Begin volume_descriptors discovery
+  /// Open an ISO image from the given storage backend, with the specified extensions enabled.
+  pub fn open(storage: Storage, extensions: Extensions) -> Result<Self, Storage::Error> {
     let mut iso = Self {
-      extension: None,
+      extensions,
       storage: RefCell::new(storage),
-      volume_descriptors: vec![],
+      pvd: None,
+      svd: None,
     };
 
     iso.scan()?;
@@ -250,34 +241,31 @@ where
     Ok(iso)
   }
 
-  pub fn volumes<'a>(&'a self) -> impl Iterator<Item = VolumeRef<'a, Storage>> {
+  /// Retrieve the Primary Volume Descriptor, if present.
+  pub fn primary_volume(&self) -> Option<PrimaryVolumeRef<'_, Storage>> {
     self
-      .volume_descriptors
-      .iter()
-      .map(|descriptor| match descriptor {
-        spec::VolumeDescriptor::Primary(v) => VolumeRef::Primary(PrimaryVolumeRef {
-          inner: v,
-          iso: self,
-        }),
-        spec::VolumeDescriptor::Supplementary(v) => {
-          VolumeRef::Supplementary(SupplementaryVolumeRef {
-            inner: v,
-            iso: self,
-          })
-        }
-      })
+      .pvd
+      .as_ref()
+      .map(|inner| PrimaryVolumeRef { inner, iso: self })
   }
 
-  pub fn scan(&mut self) -> Result<(), Storage::Error> {
+  /// Retrieve the Supplementary Volume Descriptor, if present.
+  pub fn supplementary_volume(&self) -> Option<SupplementaryVolumeRef<'_, Storage>> {
+    self
+      .svd
+      .as_ref()
+      .map(|inner| SupplementaryVolumeRef { inner, iso: self })
+  }
+
+  fn scan(&mut self) -> Result<(), Storage::Error> {
     let mut sector = [0u8; 2048];
     let mut sector_ix = 0;
-    let mut volumes = vec![];
 
     loop {
       let read = self
         .storage
         .borrow_mut()
-        .read_sector(0x10 + sector_ix, &mut sector)?;
+        .read_sector(spec::STARTING_SECTOR + sector_ix, &mut sector)?;
 
       match () {
         // End of input
@@ -290,21 +278,47 @@ where
         _ => {}
       }
 
-      let (_, volume) = spec::VolumeDescriptor::parse(&sector).map_err(|e| {
+      let (_, vd) = spec::VolumeDescriptor::parse(&sector).map_err(|e| {
         dbg!(e);
         // TODO(meowesque): Handle
         Error::Parse {}
       })?;
 
-      match volume {
-        Some(v) => volumes.push(v),
-        None => break,
+      let Some(vd) = vd else {
+        // Set terminator encountered.
+        break;
+      };
+
+      match vd {
+        spec::VolumeDescriptor::Primary(pvd) if self.pvd.is_none() => self.pvd = Some(pvd),
+        spec::VolumeDescriptor::Supplementary(svd)
+          if self.svd.is_none() && self.extensions.contains(Extensions::JOLIET) =>
+        {
+          // Only accept the first SVD if Joliet extensions are enabled
+          self.svd = Some(svd)
+        }
+
+        // Ignore unsupported descriptors
+        spec::VolumeDescriptor::Supplementary(_)
+          if !self.extensions.contains(Extensions::JOLIET) =>
+        {
+          // TODO(meowesque): Display more information about the ignored volume descriptor
+          log::warn!("Joliet extensions not enabled, ignoring Supplementary Volume Descriptor");
+        }
+
+        // Ignore duplicates
+        spec::VolumeDescriptor::Primary(_) => {
+          // TODO(meowesque): Display more information about the ignored volume descriptor
+          log::warn!("Multiple Primary Volume Descriptors found, ignoring subsequent ones");
+        }
+        spec::VolumeDescriptor::Supplementary(_) => {
+          // TODO(meowesque): Display more information about the ignored volume descriptor
+          log::warn!("Multiple Supplementary Volume Descriptors found, ignoring subsequent ones");
+        }
       }
 
       sector_ix += 1;
     }
-
-    self.volume_descriptors = volumes;
 
     Ok(())
   }

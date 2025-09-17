@@ -10,29 +10,23 @@ fn main() {
     .open(&cli.input)
     .expect("Failed to open input file");
 
-  let iso = isopod::Iso::open(file).expect("Failed to open ISO image");
+  let iso = isopod::Iso::open(file, isopod::Extensions::all()).expect("Failed to open ISO image");
 
-  for volume in iso.volumes() {
-    match volume {
-      isopod::VolumeRef::Primary(volume) => {
-        println!("Primary Volume: {}", volume.identifier().as_ref());
+  match iso.primary_volume() {
+    Some(pvd) => {
+      println!("{:?}", pvd.descriptor());
+    }
+    None => {
+      println!("No Primary Volume Descriptor found.");
+    }
+  }
 
-        for entry in volume.root().entries() {
-          match entry {
-            Ok(isopod::DirectoryEntryRef::Directory(d)) => {
-              println!("Directory: {}", d.name().as_ref());
-            }
-            Ok(isopod::DirectoryEntryRef::File(f)) => {
-              println!("File: {} (ver. {})", f.name(), f.revision());
-            }
-            Err(e) => {
-              eprintln!("{}", e);
-              break;
-            }
-          }
-        }
-      }
-      isopod::VolumeRef::Supplementary(_) => {}
+  match iso.supplementary_volume() {
+    Some(svd) => {
+      println!("{:?}", svd.descriptor());
+    }
+    None => {
+      println!("No Supplementary Volume Descriptor found.");
     }
   }
 }
