@@ -76,7 +76,7 @@ where
       .iso
       .storage
       .borrow_mut()
-      .read_sector(self.inner.extent_lba as u64 + sector_ix, &mut sector)
+      .read_at(self.inner.extent_lba as u64 + sector_ix, &mut sector)
     {
       Ok(0) => {
         log::warn!(
@@ -138,7 +138,10 @@ pub struct FileRef<'a, Storage> {
   iso: &'a Iso<Storage>,
 }
 
-impl<'a, Storage> FileRef<'a, Storage> {
+impl<'a, Storage> FileRef<'a, Storage>
+where
+  Storage: read::IsoRead,
+{
   pub fn name(&self) -> &str {
     let name = self
       .inner
@@ -157,6 +160,21 @@ impl<'a, Storage> FileRef<'a, Storage> {
       .rsplit_once(';')
       .and_then(|(_, rev)| rev.parse().ok())
       .unwrap_or(1)
+  }
+
+  pub fn size(&self) -> u32 {
+    self.inner.extent_length
+  }
+
+  pub fn read(&self, out: &mut [u8]) -> Result<usize, Storage::Error> {
+    let len = std::cmp::min(out.len(), self.size() as usize);
+
+    self
+      .iso
+      .storage
+      .borrow_mut()
+      .read_at(self.inner.extent_lba as u64, &mut out[..len])
+      .map_err(Error::Read)
   }
 }
 
@@ -282,7 +300,7 @@ where
       let read = self
         .storage
         .borrow_mut()
-        .read_sector(spec::STARTING_SECTOR + sector_ix, &mut sector)?;
+        .read_at(spec::STARTING_SECTOR + sector_ix, &mut sector)?;
 
       match () {
         // End of input
