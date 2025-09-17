@@ -56,64 +56,69 @@ where
       "DirectoryIter can only be used on directories"
     );
 
-    (|| {
-      let mut sector = [0u8; 2048];
+    let sector_ix = self.offset / 2048;
+    let bytes_offset = self.offset % 2048;
 
-      let sector_ix = self.offset / 2048;
-      let bytes_offset = self.offset % 2048;
+    if self.offset >= self.inner.extent_length as u64 {
+      // End of directory records
+      return None;
+    }
 
-      let read = self
-        .iso
-        .storage
-        .borrow_mut()
-        .read_sector(self.inner.extent_lba as u64 + sector_ix, &mut sector)?;
+    let mut sector = [0u8; 2048];
 
-      // TODO(meowesque): This wont work for anything larger than 2048 bytes
+    let read = match self
+      .iso
+      .storage
+      .borrow_mut()
+      .read_sector(self.inner.extent_lba as u64 + sector_ix, &mut sector)
+    {
+      Ok(read) => read,
+      Err(e) => return Some(Err(Error::Read(e))),
+    };
 
-      if bytes_offset >= read as u64 {
-        return Ok(None);
+    let record_bytes = &sector[bytes_offset as usize..read as usize];
+
+    let record = match spec::DirectoryRecord::parse(record_bytes) {
+      Ok((_, record)) => record,
+      Err(_e) => {
+        return Some(Err(Error::Parse {
+          //kind: e.code,
+        }));
       }
+    };
 
-      let record_bytes = &sector[bytes_offset as usize..read as usize];
+    if record.record_length == 0 {
+      // Padding, skip to next sector
+      self.offset += 2048 - bytes_offset;
+      return self.next();
+    }
 
-      let (remaining, record) = spec::DirectoryRecord::parse(record_bytes).map_err(|e| {
-        dbg!(e);
-        // TODO(meowesque): Handle
-        Error::Parse {}
-      })?;
-
-      if record.record_length == 0 {
-        // Padding, skip to next sector
-        self.offset += 2048 - bytes_offset;
-        return self.next().transpose();
+    match () {
+      // TODO(meowesque): Ignore this or return it?
+      _ if record.identifier == "\u{0}" || record.identifier == "\u{1}" => {
+        // Special entries, skip
+        self.offset += record.record_length as u64;
+        return self.next();
       }
+      // Directory
+      _ if record.file_flags.contains(spec::FileFlags::DIRECTORY) => {
+        self.offset += record.record_length as u64;
 
-      match () {
-        _ if record.identifier == "\u{0}" || record.identifier == "\u{1}" => {
-          // Special entries, skip
-          self.offset += record.record_length as u64;
-          return self.next().transpose();
-        }
-        _ if record.file_flags.contains(spec::FileFlags::DIRECTORY) => {
-          self.offset += record.record_length as u64;
-          return Ok(Some(DirectoryEntryRef::Directory(DirectoryRef {
-            inner: record,
-            iso: self.iso,
-          })));
-        }
-        _ if record.file_flags.is_empty() => {
-          self.offset += record.record_length as u64;
-          return Ok(Some(DirectoryEntryRef::File(FileRef {
-            inner: record,
-            iso: self.iso,
-          })));
-        }
-        _ => todo!(),
+        return Some(Ok(DirectoryEntryRef::Directory(DirectoryRef {
+          inner: record,
+          iso: self.iso,
+        })));
       }
-
-      Ok(None)
-    })()
-    .transpose()
+      // Regular file
+      _ if record.file_flags.is_empty() => {
+        self.offset += record.record_length as u64;
+        return Some(Ok(DirectoryEntryRef::File(FileRef {
+          inner: record,
+          iso: self.iso,
+        })));
+      }
+      _ => todo!(),
+    }
   }
 }
 
