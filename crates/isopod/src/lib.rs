@@ -1,7 +1,7 @@
-mod parse;
-mod read;
-mod spec;
-mod write;
+pub mod parse;
+pub mod read;
+pub mod spec;
+pub mod write;
 
 use std::{cell::RefCell, rc::Rc};
 
@@ -39,6 +39,7 @@ impl Default for Extensions {
 
 /// Iterator over directory entries.
 pub struct DirectoryIter<'a, Storage> {
+  valid: bool,
   inner: spec::DirectoryRecord,
   offset: u64,
   iso: &'a Iso<Storage>,
@@ -56,6 +57,11 @@ where
       "DirectoryIter can only be used on directories"
     );
 
+    // TODO(meowesque): Handle invalid state more gracefully
+    if !self.valid {
+      return None;
+    }
+
     let sector_ix = self.offset / 2048;
     let bytes_offset = self.offset % 2048;
 
@@ -72,51 +78,56 @@ where
       .borrow_mut()
       .read_sector(self.inner.extent_lba as u64 + sector_ix, &mut sector)
     {
+      Ok(0) => {
+        log::warn!(
+          "Unexpected end of input, expected atleast {} more bytes",
+          self.inner.extent_length - self.offset as u32
+        );
+        return None;
+      }
       Ok(read) => read,
       Err(e) => return Some(Err(Error::Read(e))),
     };
 
     let record_bytes = &sector[bytes_offset as usize..read as usize];
 
+    if record_bytes[0] == 0 {
+      // The first byte being zero indicates padding at the end of the sector.
+      self.offset += 2048 - bytes_offset;
+      return self.next();
+    }
+
     let record = match spec::DirectoryRecord::parse(record_bytes) {
       Ok((_, record)) => record,
-      Err(_e) => {
+      Err(e) => {
+        // TODO(meowesque): Handle parse error
         return Some(Err(Error::Parse {
           //kind: e.code,
         }));
       }
     };
 
-    if record.record_length == 0 {
-      // Padding, skip to next sector
-      self.offset += 2048 - bytes_offset;
-      return self.next();
-    }
+    self.offset += record.record_length as u64;
 
     match () {
       // TODO(meowesque): Ignore this or return it?
       _ if record.identifier == "\u{0}" || record.identifier == "\u{1}" => {
         // Special entries, skip
-        self.offset += record.record_length as u64;
-        return self.next();
+        self.next()
       }
       // Directory
       _ if record.file_flags.contains(spec::FileFlags::DIRECTORY) => {
-        self.offset += record.record_length as u64;
-
-        return Some(Ok(DirectoryEntryRef::Directory(DirectoryRef {
+        Some(Ok(DirectoryEntryRef::Directory(DirectoryRef {
           inner: record,
           iso: self.iso,
-        })));
+        })))
       }
       // Regular file
-      _ if record.file_flags.is_empty() => {
-        self.offset += record.record_length as u64;
-        return Some(Ok(DirectoryEntryRef::File(FileRef {
-          inner: record,
-          iso: self.iso,
-        })));
-      }
+      _ if record.file_flags.is_empty() => Some(Ok(DirectoryEntryRef::File(FileRef {
+        inner: record,
+        iso: self.iso,
+      }))),
+      // TODO(meowesque): Handle other types of entries
       _ => todo!(),
     }
   }
@@ -166,6 +177,7 @@ impl<'a, Storage> DirectoryRef<'a, Storage> {
 
   pub fn entries(&self) -> DirectoryIter<'a, Storage> {
     DirectoryIter {
+      valid: true,
       inner: self.inner.clone(),
       offset: 0,
       iso: self.iso,
@@ -284,7 +296,6 @@ where
       }
 
       let (_, vd) = spec::VolumeDescriptor::parse(&sector).map_err(|e| {
-        dbg!(e);
         // TODO(meowesque): Handle
         Error::Parse {}
       })?;

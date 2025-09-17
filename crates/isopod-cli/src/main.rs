@@ -2,6 +2,35 @@ use clap::Parser;
 
 mod cli;
 
+fn display_entries<Storage>(entry: &isopod::DirectoryRef<'_, Storage>, depth: u64)
+where
+  Storage: isopod::read::IsoRead,
+{
+  for entry in entry.entries() {
+    if let Ok(entry) = entry {
+      match &entry {
+        isopod::DirectoryEntryRef::File(file) => {
+          println!(
+            "{:indent$}File: {}",
+            "",
+            file.name(),
+            indent = (depth * 2) as usize
+          );
+        }
+        isopod::DirectoryEntryRef::Directory(dir) => {
+          println!(
+            "{:indent$}Directory: {}",
+            "",
+            dir.name(),
+            indent = (depth * 2) as usize
+          );
+          display_entries(dir, depth + 1);
+        }
+      }
+    }
+  }
+}
+
 fn main() {
   let cli = cli::Cli::parse();
 
@@ -12,21 +41,7 @@ fn main() {
 
   let iso = isopod::Iso::open(file, isopod::Extensions::all()).expect("Failed to open ISO image");
 
-  match iso.primary_volume() {
-    Some(pvd) => {
-      println!("{:?}", pvd.descriptor());
-    }
-    None => {
-      println!("No Primary Volume Descriptor found.");
-    }
-  }
-
-  match iso.supplementary_volume() {
-    Some(svd) => {
-      println!("{:?}", svd.descriptor());
-    }
-    None => {
-      println!("No Supplementary Volume Descriptor found.");
-    }
+  if let Some(pv) = iso.primary_volume() {
+    display_entries(&pv.root(), 0);
   }
 }
