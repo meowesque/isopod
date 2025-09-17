@@ -42,17 +42,17 @@
         ];
       in
       rec {
-        defaultPackage = packages.isopodcli;
+        defaultPackage = packages.isopod-cli;
         packages = {
-          isopodcli = naersk'.buildPackage {
+          isopod-cli = naersk'.buildPackage {
             src = ./.;
             nativeBuildInputs = nativeBuildInputs;
             buildInputs = buildInputs;
           };
           container = pkgs.dockerTools.buildImage {
-            name = "isopodcli";
+            name = "isopod-cli";
             config = {
-              entrypoint = [ "${packages.isopodcli}/bin/isopodcli" ];
+              entrypoint = [ "${packages.isopod-cli}/bin/isopod-cli" ];
             };
           };
         };
