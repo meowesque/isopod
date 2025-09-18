@@ -1,4 +1,4 @@
-# isopod
+# [isopod](https://crates.io/crates/isopod) Source Tree
 
 ![Crates.io Version](https://img.shields.io/crates/v/isopod)
 
