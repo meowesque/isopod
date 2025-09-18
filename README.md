@@ -7,12 +7,20 @@ ISO 9660:2023 library currently in development, awaiting stable release.
 ## Roadmap
 
 * [ ] Joliet support
+
+  Currently WIP.
+
+* [ ] El Torito support
+
+  Currently WIP.
+
 * [ ] Rock Ridge support
 * [ ] Exhaustive specification implementation documentation
 * [ ] Example suite
 
 ## References
 
+* [El Torito](https://pdos.csail.mit.edu/6.828/2014/readings/boot-cdrom.pdf)
 * [ECMA-119](https://ecma-international.org/wp-content/uploads/ECMA-119_5th_edition_december_2024.pdf)
 * ISO/IEC 9660:2023 
 * [OSDev Wiki](https://wiki.osdev.org/ISO_9660)
