@@ -334,7 +334,8 @@ impl Parse for spec::VolumeDescriptor {
         Ok((i, Some(spec::VolumeDescriptor::Supplementary(vd))))
       }
       spec::VolumeDescriptorType::BootRecord => {
-        let (i, vd) = spec::BootRecord::parse(i)?;
+        // TODO(meowesque): Handle different boot system types
+        let (i, vd) = spec::BootRecordVolumeDescriptor::parse(i)?;
         Ok((i, Some(spec::VolumeDescriptor::Boot(vd))))
       }
       spec::VolumeDescriptorType::VolumeDescriptorSetTerminator => Ok((i, None)),
@@ -343,16 +344,19 @@ impl Parse for spec::VolumeDescriptor {
   }
 }
 
-impl Parse for spec::BootRecord {
+impl Parse for spec::BootRecordVolumeDescriptor {
   type Output = Self;
 
   fn parse(i: &[u8]) -> IResult<&[u8], Self::Output> {
+    let i_oldlen = i.len();
+
     let (i, _vd_type) = take(1usize).parse(i)?;
     let (i, standard_identifier) = spec::VolumeDescriptorIdentifier::parse(i)?;
     let (i, version) = le_u8(i)?;
     let (i, boot_system_identifier) = take_string_n(i, 32)?;
     let (i, boot_identifier) = take_string_n(i, 32)?;
-    let (i, boot_system_use) = take(1977usize).parse(i)?;
+    let (i, absolute_pointer) = le_u32(i)?;
+    let (i, _boot_system_use) = take(1973usize).parse(i)?;
 
     Ok((
       i,
@@ -361,8 +365,27 @@ impl Parse for spec::BootRecord {
         version,
         boot_system_identifier: boot_system_identifier.to_string(),
         boot_identifier: boot_identifier.to_string(),
-        boot_system_use: boot_system_use.try_into().unwrap(),
+        absolute_pointer,
       },
     ))
+  }
+}
+
+mod el_torito {
+  use super::*;
+
+  impl Parse for spec::el_torito::InitialSectionHeaderEntry {
+    type Output = Self;
+
+    fn parse(i: &[u8]) -> IResult<&[u8], Self::Output> {
+      let (i, header_id) = le_u8(i)?;
+      let (i, platform_id) = map_opt(le_u8, spec::el_torito::PlatformId::from_u8).parse(i)?;
+      let (i, identifier) = take_string_n(i, 24)?;
+      let (i, checksum) = le_u16(i)?;
+      let (i, bootable) = map_opt(le_u8, spec::el_torito::BootIndicator::from_u8).parse(i)?;
+      let (i, _unused1) = take(1usize).parse(i)?;
+
+      todo!()
+    }
   }
 }

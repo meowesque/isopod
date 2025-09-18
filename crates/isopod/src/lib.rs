@@ -2,7 +2,6 @@ pub mod parse;
 pub mod read;
 pub mod spec;
 pub mod write;
-pub mod builder;
 
 use std::cell::RefCell;
 
@@ -29,6 +28,8 @@ bitflags::bitflags! {
     const ROCK_RIDGE = 1 << 0;
     /// Joliet extensions.
     const JOLIET = 1 << 1;
+    /// El Torito
+    const EL_TORITO = 1 << 2;
   }
 }
 
@@ -252,11 +253,30 @@ impl<'a, Storage> SupplementaryVolumeRef<'a, Storage> {
   }
 }
 
+pub struct BootRecordVolumeRef<'a, Storage> {
+  inner: &'a spec::BootRecordVolumeDescriptor,
+  iso: &'a Iso<Storage>,
+}
+
+impl<'a, Storage> BootRecordVolumeRef<'a, Storage> {
+  /*
+  pub fn identifier(&self) -> impl AsRef<str> + '_ {
+    self.inner.boot_identifier.as_str()
+  }
+  */
+
+  /// Retrieve the volume descriptor.
+  pub fn descriptor(&self) -> &spec::BootRecordVolumeDescriptor {
+    self.inner
+  }
+}
+
 pub struct Iso<Storage> {
   extensions: Extensions,
   storage: RefCell<Storage>,
   pvd: Option<spec::PrimaryVolumeDescriptor>,
   svd: Option<spec::SupplementaryVolumeDescriptor>,
+  bvd: Option<spec::BootRecordVolumeDescriptor>,
 }
 
 impl<Storage> Iso<Storage>
@@ -270,6 +290,7 @@ where
       storage: RefCell::new(storage),
       pvd: None,
       svd: None,
+      bvd: None,
     };
 
     iso.scan()?;
@@ -291,6 +312,13 @@ where
       .svd
       .as_ref()
       .map(|inner| SupplementaryVolumeRef { inner, iso: self })
+  }
+
+  pub fn boot_record_volume(&self) -> Option<BootRecordVolumeRef<'_, Storage>> {
+    self
+      .bvd
+      .as_ref()
+      .map(|inner| BootRecordVolumeRef { inner, iso: self })
   }
 
   fn scan(&mut self) -> Result<(), Storage::Error> {
@@ -332,6 +360,12 @@ where
           // Only accept the first SVD if Joliet extensions are enabled
           self.svd = Some(svd)
         }
+        spec::VolumeDescriptor::Boot(bvd)
+          if self.bvd.is_none() && self.extensions.contains(Extensions::EL_TORITO) =>
+        {
+          // Only accept the first BVD if El Torito extensions are enabled
+          self.bvd = Some(bvd)
+        }
 
         // Ignore unsupported descriptors
         spec::VolumeDescriptor::Supplementary(_)
@@ -339,6 +373,9 @@ where
         {
           // TODO(meowesque): Display more information about the ignored volume descriptor
           log::warn!("Joliet extensions not enabled, ignoring Supplementary Volume Descriptor");
+        }
+        spec::VolumeDescriptor::Boot(_) if !self.extensions.contains(Extensions::EL_TORITO) => {
+          log::warn!("El Torito extensions not enabled, ignoring Boot Record Volume Descriptor");
         }
 
         // Ignore duplicates
@@ -349,14 +386,27 @@ where
         spec::VolumeDescriptor::Supplementary(_) => {
           // TODO(meowesque): Display more information about the ignored volume descriptor
           log::warn!("Multiple Supplementary Volume Descriptors found, ignoring subsequent ones");
-        },
-
-        _ => unimplemented!()
+        }
+        spec::VolumeDescriptor::Boot(_) => {
+          log::warn!("Multiple Boot Record Volume Descriptors found, ignoring subsequent ones");
+        }
       }
 
       sector_ix += 1;
     }
 
     Ok(())
+  }
+}
+
+pub struct IsoBuilder {}
+
+impl IsoBuilder {
+  pub fn new() -> Self {
+    Self {}
+  }
+
+  pub fn build(mut self) {
+    todo!()
   }
 }
