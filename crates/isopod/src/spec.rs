@@ -108,6 +108,39 @@ bitflags::bitflags! {
     const RESERVED_6 = 1 << 5;
     const RESERVED_7 = 1 << 6;
   }
+
+  #[derive(Debug, Clone)]
+  pub struct BootMediaType: u8 {
+    /// 1.2 MiB floppy 
+    const FLOPPY_120M = 1 << 0;
+    /// 1.44 MiB floppy
+    const FLOPPY_144M = 1 << 1;
+    /// 2.88 MiB floppy 
+    const FLOPPY_288M = 1 << 2;
+    const HARD_DISK = 1 << 3;
+    // const RESERVED = 1 << 4;
+    /// Continued in the next section of the boot catalog.
+    const CONTINUATION_ENTRY_FOLLOWS = 1 << 5;
+    /// Image contains an ATAPI driver
+    const ATAPI_DRIVER = 1 << 6;
+    /// Image contains SCSI drivers 
+    const SCSI_DRIVERS = 1 << 7;
+  }
+}
+
+#[repr(u8)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
+pub enum PlatformId {
+  X86 = 0,
+  PowerPc = 1,
+  Mac = 2,
+}
+
+#[repr(u8)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
+pub enum BootIndicator {
+  NotBootable = 88,
+  Bootable = 00,
 }
 
 #[derive(Debug, Clone)]
@@ -243,6 +276,7 @@ impl DirectoryRecord {
 pub enum VolumeDescriptor {
   Primary(PrimaryVolumeDescriptor),
   Supplementary(SupplementaryVolumeDescriptor),
+  Boot(BootRecord),
 }
 
 #[derive(Debug)]
@@ -252,4 +286,27 @@ pub struct PathTableRecord {
   pub extent_lba: u32,
   pub parent_directory_number: u16,
   pub directory_identifier: String,
+}
+
+#[derive(Debug)]
+pub struct BootRecord {
+  pub standard_identifier: VolumeDescriptorIdentifier,
+  pub version: u8,
+  pub boot_system_identifier: String,
+  pub boot_identifier: String,
+  pub boot_system_use: [u8; 1977],
+}
+
+#[derive(Debug, Clone)]
+pub struct BootCatalog {
+  pub header_id: u8,
+  pub platform_id: PlatformId,
+  pub identifier: String,
+  pub checksum: u16,
+  pub bootable: BootIndicator,
+  pub boot_media_type: BootMediaType,
+  pub load_segment: u16,
+  pub system_type: u8,
+  pub sector_count: u16,
+  pub load_rba: u32,
 }

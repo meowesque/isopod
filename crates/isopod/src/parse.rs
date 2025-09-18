@@ -333,8 +333,36 @@ impl Parse for spec::VolumeDescriptor {
         let (i, vd) = spec::SupplementaryVolumeDescriptor::parse(i)?;
         Ok((i, Some(spec::VolumeDescriptor::Supplementary(vd))))
       }
+      spec::VolumeDescriptorType::BootRecord => {
+        let (i, vd) = spec::BootRecord::parse(i)?;
+        Ok((i, Some(spec::VolumeDescriptor::Boot(vd))))
+      }
       spec::VolumeDescriptorType::VolumeDescriptorSetTerminator => Ok((i, None)),
       _ => unimplemented!(),
     }
+  }
+}
+
+impl Parse for spec::BootRecord {
+  type Output = Self;
+
+  fn parse(i: &[u8]) -> IResult<&[u8], Self::Output> {
+    let (i, _vd_type) = take(1usize).parse(i)?;
+    let (i, standard_identifier) = spec::VolumeDescriptorIdentifier::parse(i)?;
+    let (i, version) = le_u8(i)?;
+    let (i, boot_system_identifier) = take_string_n(i, 32)?;
+    let (i, boot_identifier) = take_string_n(i, 32)?;
+    let (i, boot_system_use) = take(1977usize).parse(i)?;
+
+    Ok((
+      i,
+      Self {
+        standard_identifier,
+        version,
+        boot_system_identifier: boot_system_identifier.to_string(),
+        boot_identifier: boot_identifier.to_string(),
+        boot_system_use: boot_system_use.try_into().unwrap(),
+      },
+    ))
   }
 }

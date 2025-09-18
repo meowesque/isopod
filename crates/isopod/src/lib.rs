@@ -2,8 +2,9 @@ pub mod parse;
 pub mod read;
 pub mod spec;
 pub mod write;
+pub mod builder;
 
-use std::{cell::RefCell, rc::Rc};
+use std::cell::RefCell;
 
 use parse::Parse;
 
@@ -348,7 +349,9 @@ where
         spec::VolumeDescriptor::Supplementary(_) => {
           // TODO(meowesque): Display more information about the ignored volume descriptor
           log::warn!("Multiple Supplementary Volume Descriptors found, ignoring subsequent ones");
-        }
+        },
+
+        _ => unimplemented!()
       }
 
       sector_ix += 1;
