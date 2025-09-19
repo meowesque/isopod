@@ -7,3 +7,5 @@ flake.lock
 .concat.out
 Cargo.lock
 .vscode
+.envrc
+LICENSE
