@@ -2,10 +2,13 @@ pub mod parse;
 pub mod read;
 pub mod spec;
 pub mod write;
+pub mod layout;
 
 use std::cell::RefCell;
 
 use parse::Parse;
+
+use crate::spec::BootRecordVolumeDescriptor;
 
 pub type Result<T, E> = std::result::Result<T, Error<E>>;
 
@@ -41,7 +44,6 @@ impl Default for Extensions {
 
 /// Iterator over directory entries.
 pub struct DirectoryIter<'a, Storage> {
-  valid: bool,
   inner: spec::DirectoryRecord,
   offset: u64,
   iso: &'a Iso<Storage>,
@@ -58,11 +60,6 @@ where
       self.inner.is_directory(),
       "DirectoryIter can only be used on directories"
     );
-
-    // TODO(meowesque): Handle invalid state more gracefully
-    if !self.valid {
-      return None;
-    }
 
     let sector_ix = self.offset / 2048;
     let bytes_offset = self.offset % 2048;
@@ -135,6 +132,23 @@ where
   }
 }
 
+pub struct SectionHeadersIter<'a, Storage> {
+  iso: &'a Iso<Storage>,
+  absolute_position: u64,
+  offset: u64,
+}
+
+impl<'a, Storage> Iterator for SectionHeadersIter<'a, Storage>
+where
+  Storage: read::IsoRead,
+{
+  type Item = Result<BootRecordVolumeDescriptor, Storage::Error>;
+
+  fn next(&mut self) -> Option<Self::Item> {
+    todo!()
+  }
+}
+
 pub struct FileRef<'a, Storage> {
   inner: spec::DirectoryRecord,
   iso: &'a Iso<Storage>,
@@ -197,7 +211,6 @@ impl<'a, Storage> DirectoryRef<'a, Storage> {
 
   pub fn entries(&self) -> DirectoryIter<'a, Storage> {
     DirectoryIter {
-      valid: true,
       inner: self.inner.clone(),
       offset: 0,
       iso: self.iso,
@@ -268,6 +281,14 @@ impl<'a, Storage> BootRecordVolumeRef<'a, Storage> {
   /// Retrieve the volume descriptor.
   pub fn descriptor(&self) -> &spec::BootRecordVolumeDescriptor {
     self.inner
+  }
+
+  pub fn section_headers_iter(&self) -> SectionHeadersIter<'a, Storage> {
+    SectionHeadersIter {
+      iso: self.iso,
+      absolute_position: self.inner.absolute_pointer as u64,
+      offset: 0,
+    }
   }
 }
 
@@ -399,11 +420,13 @@ where
   }
 }
 
-pub struct IsoBuilder {}
+pub struct IsoBuilder {
+  extensions: Extensions,
+}
 
 impl IsoBuilder {
-  pub fn new() -> Self {
-    Self {}
+  pub fn new(extensions: Extensions) -> Self {
+    Self { extensions }
   }
 
   pub fn build(mut self) {
