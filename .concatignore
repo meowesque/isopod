@@ -5,3 +5,5 @@ flake.lock
 .git
 .concatignore
 .concat.out
+Cargo.lock
+.vscode
