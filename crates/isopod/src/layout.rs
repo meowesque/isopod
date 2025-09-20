@@ -56,40 +56,34 @@ pub struct FsDirectory {
 }
 
 impl FsDirectory {
-  pub fn insert(&mut self, node: FsNode) {
-    // TODO(meowesque): This is inefficient & unscenic. Refactor.
+  /// Insert a node into this directory.
+  ///
+  /// If a node with the same name already exists, it will
+  /// be merged (for directories) or replaced (for files).
+  pub fn insert(&mut self, node: &FsNode) {
+    // TODO(meowesque): Potentially using a better data structure here
+    // TODO(meowesque): would make this a little more optimal.
+    // TODO(meowesque): Speaking of optimal, see if we can avoid cloning and simply move.
 
-    match &node {
-      FsNode::Directory(dir) => {
-        for child in &mut self.children {
-          match child {
-            FsNode::Directory(child_dir) if child_dir.name == dir.name => {
-              for child in &dir.children {
-                // TODO(meowesque): This is inefficient
-                child_dir.insert(child.clone());
-              }
-
-              return;
-            }
-            _ => {}
-          }
+    for child in &mut self.children {
+      match (child, &node) {
+        (FsNode::Directory(child_dir), FsNode::Directory(node_dir))
+          if child_dir.name == node_dir.name =>
+        {
+          // If a directory with the same name exists, merge their children.
+          node_dir.children.iter().for_each(|x| child_dir.insert(x));
+          return;
         }
-      }
-      FsNode::File(file) => {
-        for child in &mut self.children {
-          match child {
-            FsNode::File(child_file) if child_file.name == file.name => {
-              let _ = std::mem::replace(child_file, file.clone());
-              return;
-
-            }
-            _ => {}
-          }
+        (FsNode::File(child_file), FsNode::File(file)) if child_file.name == file.name => {
+          // If a file with the same name exists, just replace it.
+          let _ = std::mem::replace(child_file, file.clone());
+          return;
         }
+        _ => {}
       }
     }
 
-    self.children.push(node);
+    self.children.push(node.clone());
   }
 }
 
@@ -183,6 +177,9 @@ impl IsoLayout {
     }
   }
 
+  /// Insert a file into the layout at the specified path with the given size.
+  ///
+  /// If intermediate directories do not exist, they will be created.
   pub fn insert_file(&mut self, path: &PathBuf, size: usize) {
     let components: Vec<_> = path.components().collect();
     let name = components
@@ -199,7 +196,7 @@ impl IsoLayout {
       content: FileContentRef::FsFile(size),
     });
 
-    for component in path.components().take(components.len() - 1) {
+    for component in path.components().rev().skip(1) {
       tail = FsNode::Directory(FsDirectory {
         lba: None,
         name: component
@@ -213,7 +210,7 @@ impl IsoLayout {
 
     match &mut self.root {
       FsNode::Directory(dir) => {
-        dir.insert(tail);
+        dir.insert(&tail);
       }
       FsNode::File(_) => panic!("Root node must be a directory"),
     }
