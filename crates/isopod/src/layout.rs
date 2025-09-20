@@ -208,11 +208,10 @@ impl IsoLayout {
       });
     }
 
-    match &mut self.root {
-      FsNode::Directory(dir) => {
-        dir.insert(&tail);
-      }
-      FsNode::File(_) => panic!("Root node must be a directory"),
-    }
+    let FsNode::Directory(dir) = &mut self.root else {
+      unreachable!("Root node is a directory");
+    };
+
+    dir.insert(&tail);
   }
 }
