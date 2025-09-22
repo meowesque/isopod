@@ -365,27 +365,23 @@ impl Parse for spec::BootRecordVolumeDescriptor {
         version,
         boot_system_identifier: boot_system_identifier.to_string(),
         boot_identifier: boot_identifier.to_string(),
-        absolute_pointer,
+        absolute_pointer: absolute_pointer as u32,
       },
     ))
   }
 }
 
-mod el_torito {
-  use super::*;
+impl Parse for spec::InitialSectionHeaderEntry {
+  type Output = Self;
 
-  impl Parse for spec::el_torito::InitialSectionHeaderEntry {
-    type Output = Self;
+  fn parse(i: &[u8]) -> IResult<&[u8], Self::Output> {
+    let (i, header_id) = le_u8(i)?;
+    let (i, platform_id) = map_opt(le_u8, spec::PlatformId::from_u8).parse(i)?;
+    let (i, identifier) = take_string_n(i, 24)?;
+    let (i, checksum) = le_u16(i)?;
+    let (i, bootable) = map_opt(le_u8, spec::BootIndicator::from_u8).parse(i)?;
+    let (i, _unused1) = take(1usize).parse(i)?;
 
-    fn parse(i: &[u8]) -> IResult<&[u8], Self::Output> {
-      let (i, header_id) = le_u8(i)?;
-      let (i, platform_id) = map_opt(le_u8, spec::el_torito::PlatformId::from_u8).parse(i)?;
-      let (i, identifier) = take_string_n(i, 24)?;
-      let (i, checksum) = le_u16(i)?;
-      let (i, bootable) = map_opt(le_u8, spec::el_torito::BootIndicator::from_u8).parse(i)?;
-      let (i, _unused1) = take(1usize).parse(i)?;
-
-      todo!()
-    }
+    todo!()
   }
 }

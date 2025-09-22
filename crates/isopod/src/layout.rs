@@ -214,4 +214,12 @@ impl IsoLayout {
 
     dir.insert(&tail);
   }
+
+  pub fn finalize(&mut self) {
+    let mut allocator = LbaAllocator::new(self.sector_size, spec::STARTING_SECTOR as u32);
+
+    self.root.allocate_lbas(&mut allocator);
+
+    todo!()
+  }
 }

@@ -33,6 +33,16 @@ where
   }
 } */
 
+fn list(input: std::path::PathBuf, _verbose: bool) {
+  let file = std::fs::File::open(&input).expect("Failed to open input ISO file");
+  let iso =
+    isopod::Iso::open(file, isopod::Extensions::all()).expect("Failed to read ISO filesystem");
+
+  if let Some(bvd) = iso.boot_record_volume() {
+    println!("Boot Volume Descriptor: {:?}", bvd.descriptor());
+  }
+}
+
 fn main() {
   let cli = cli::Cli::parse();
 
@@ -49,16 +59,16 @@ fn main() {
       todo!()
     }
     cli::Command::Extract { input, output } => {
-      // Handle extract command
+      todo!()
     }
     cli::Command::List { input, verbose } => {
-      // Handle list command
+      list(input, verbose);
     }
     cli::Command::Info { input } => {
-      // Handle info command
+      todo!()
     }
     cli::Command::Validate { input } => {
-      // Handle validate command
+      todo!()
     }
   }
 }

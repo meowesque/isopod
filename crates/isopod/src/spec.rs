@@ -237,6 +237,17 @@ impl DirectoryRecord {
   pub fn is_directory(&self) -> bool {
     self.file_flags.contains(FileFlags::DIRECTORY)
   }
+
+  pub fn record_length(&self) -> u8 {
+    // TODO(meowesque): Verify this calculation is correct.
+    let base_length = 33; // Size of all fields except identifier and padding
+    let padding = if self.identifier_length % 2 == 0 {
+      0
+    } else {
+      1
+    };
+    base_length + self.identifier_length + padding
+  }
 }
 
 #[derive(Debug)]
@@ -266,119 +277,117 @@ pub struct BootRecordVolumeDescriptor {
   // structures, this one just being the singular implemention defined
   // by the El Torito specification. Other structures are possible
   // but not implemented here (yet?).
-  pub absolute_pointer: u32
+  pub absolute_pointer: u32,
 }
 
-pub mod el_torito {
-  bitflags::bitflags! {
-    #[derive(Debug, Clone)]
-    pub struct BootMediaType: u8 {
-      /// 1.2 MiB floppy
-      const FLOPPY_120M = 1 << 0;
-      /// 1.44 MiB floppy
-      const FLOPPY_144M = 1 << 1;
-      /// 2.88 MiB floppy
-      const FLOPPY_288M = 1 << 2;
-      const HARD_DISK = 1 << 3;
-      // const RESERVED = 1 << 4;
-      /// Continued in the next section of the boot catalog.
-      const CONTINUATION_ENTRY_FOLLOWS = 1 << 5;
-      /// Image contains an ATAPI driver
-      const ATAPI_DRIVER = 1 << 6;
-      /// Image contains SCSI drivers
-      const SCSI_DRIVERS = 1 << 7;
-    }
-  }
-
-  #[repr(u8)]
-  #[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
-  pub enum PlatformId {
-    X86 = 0,
-    PowerPc = 1,
-    Mac = 2,
-  }
-
-  impl PlatformId {
-    pub fn from_u8(value: u8) -> Option<Self> {
-      Some(match value {
-        0 => PlatformId::X86,
-        1 => PlatformId::PowerPc,
-        2 => PlatformId::Mac,
-        _ => return None,
-      })
-    }
-  }
-
-  #[repr(u8)]
-  #[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
-  pub enum BootIndicator {
-    NotBootable = 88,
-    Bootable = 00,
-  }
-
-  impl BootIndicator {
-    pub fn from_u8(value: u8) -> Option<Self> {
-      Some(match value {
-        88 => BootIndicator::NotBootable,
-        0 => BootIndicator::Bootable,
-        _ => return None,
-      })
-    }
-  }
-
-  #[repr(u8)]
-  #[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
-  pub enum HeaderIndicator {
-    MoreHeadersFollow = 90,
-    LastHeader = 91,
-  }
-
-  #[repr(u8)]
-  #[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
-  pub enum SelectionCriteriaType {
-    NoSelectionCriteria = 0,
-    LanguageAndVersionInformation = 1,
-  }
-
+bitflags::bitflags! {
   #[derive(Debug, Clone)]
-  pub struct BootCatalog {
-    pub initial_section_header_entry: InitialSectionHeaderEntry,
-    pub section_header_entries: Vec<SectionHeaderEntry>,
+  pub struct BootMediaType: u8 {
+    /// 1.2 MiB floppy
+    const FLOPPY_120M = 1 << 0;
+    /// 1.44 MiB floppy
+    const FLOPPY_144M = 1 << 1;
+    /// 2.88 MiB floppy
+    const FLOPPY_288M = 1 << 2;
+    const HARD_DISK = 1 << 3;
+    // const RESERVED = 1 << 4;
+    /// Continued in the next section of the boot catalog.
+    const CONTINUATION_ENTRY_FOLLOWS = 1 << 5;
+    /// Image contains an ATAPI driver
+    const ATAPI_DRIVER = 1 << 6;
+    /// Image contains SCSI drivers
+    const SCSI_DRIVERS = 1 << 7;
   }
+}
 
-  #[derive(Debug, Clone)]
-  pub struct InitialSectionHeaderEntry {
-    pub header_id: u8,
-    pub platform_id: PlatformId,
-    pub identifier: String,
-    pub checksum: u16,
-    pub bootable: BootIndicator,
-    pub boot_media_type: BootMediaType,
-    pub load_segment: u16,
-    pub system_type: u8,
-    pub sector_count: u16,
-    pub load_rba: u32,
-  }
+#[repr(u8)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
+pub enum PlatformId {
+  X86 = 0,
+  PowerPc = 1,
+  Mac = 2,
+}
 
-  impl InitialSectionHeaderEntry {
-    pub fn calculate_checksum(&self) -> u16 {
-      todo!()
-    }
+impl PlatformId {
+  pub fn from_u8(value: u8) -> Option<Self> {
+    Some(match value {
+      0 => PlatformId::X86,
+      1 => PlatformId::PowerPc,
+      2 => PlatformId::Mac,
+      _ => return None,
+    })
   }
+}
 
-  #[derive(Debug, Clone)]
-  pub struct SectionHeaderEntry {
-    pub header_indicator: HeaderIndicator,
-    pub platform_id: PlatformId,
-    pub following_headers: u16,
-    pub identifier: String,
-    pub bootable: BootIndicator,
-    pub boot_media_type: BootMediaType,
-    pub load_segment: u16,
-    pub system_type: u8,
-    pub sector_count: u16,
-    pub load_rba: u32,
-    pub selection_criteria_type: SelectionCriteriaType,
-    pub vendor_selection_criteria: u8,
+#[repr(u8)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
+pub enum BootIndicator {
+  NotBootable = 88,
+  Bootable = 00,
+}
+
+impl BootIndicator {
+  pub fn from_u8(value: u8) -> Option<Self> {
+    Some(match value {
+      88 => BootIndicator::NotBootable,
+      0 => BootIndicator::Bootable,
+      _ => return None,
+    })
   }
+}
+
+#[repr(u8)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
+pub enum HeaderIndicator {
+  MoreHeadersFollow = 90,
+  LastHeader = 91,
+}
+
+#[repr(u8)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
+pub enum SelectionCriteriaType {
+  NoSelectionCriteria = 0,
+  LanguageAndVersionInformation = 1,
+}
+
+#[derive(Debug, Clone)]
+pub struct BootCatalog {
+  pub initial_section_header_entry: InitialSectionHeaderEntry,
+  pub section_header_entries: Vec<SectionHeaderEntry>,
+}
+
+#[derive(Debug, Clone)]
+pub struct InitialSectionHeaderEntry {
+  pub header_id: u8,
+  pub platform_id: PlatformId,
+  pub identifier: String,
+  pub checksum: u16,
+  pub bootable: BootIndicator,
+  pub boot_media_type: BootMediaType,
+  pub load_segment: u16,
+  pub system_type: u8,
+  pub sector_count: u16,
+  pub load_rba: u32,
+}
+
+impl InitialSectionHeaderEntry {
+  pub fn calculate_checksum(&self) -> u16 {
+    todo!()
+  }
+}
+
+#[derive(Debug, Clone)]
+pub struct SectionHeaderEntry {
+  pub header_indicator: HeaderIndicator,
+  pub platform_id: PlatformId,
+  pub following_headers: u16,
+  pub identifier: String,
+  pub bootable: BootIndicator,
+  pub boot_media_type: BootMediaType,
+  pub load_segment: u16,
+  pub system_type: u8,
+  pub sector_count: u16,
+  pub load_rba: u32,
+  pub selection_criteria_type: SelectionCriteriaType,
+  pub vendor_selection_criteria: u8,
 }

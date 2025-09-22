@@ -3,6 +3,9 @@ pub mod read;
 pub mod spec;
 pub mod write;
 pub mod layout;
+pub mod writer;
+pub mod error;
+pub mod serialize;
 
 use std::cell::RefCell;
 
