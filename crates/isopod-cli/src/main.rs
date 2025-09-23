@@ -33,6 +33,7 @@ where
   }
 } */
 
+/*
 fn list(input: std::path::PathBuf, _verbose: bool) {
   let file = std::fs::File::open(&input).expect("Failed to open input ISO file");
   let iso =
@@ -42,6 +43,7 @@ fn list(input: std::path::PathBuf, _verbose: bool) {
     println!("Boot Volume Descriptor: {:?}", bvd.descriptor());
   }
 }
+ */
 
 fn main() {
   let cli = cli::Cli::parse();

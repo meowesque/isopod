@@ -1,4 +1,4 @@
-# [isopod](https://crates.io/crates/isopod) Source Tree
+# ISO 9660 Filesystems Library
 
 ![Crates.io Version](https://img.shields.io/crates/v/isopod)
 
@@ -20,6 +20,7 @@ ISO 9660:2023 library currently in development, awaiting stable release.
 
 ## References
 
+* [Rock Ridge](https://people.freebsd.org/~emaste/rrip112.pdf)
 * [Joliet](https://pismotec.com/cfs/jolspec.html)
 * [El Torito](https://pdos.csail.mit.edu/6.828/2014/readings/boot-cdrom.pdf)
 * [ECMA-119](https://ecma-international.org/wp-content/uploads/ECMA-119_5th_edition_december_2024.pdf)
