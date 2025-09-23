@@ -50,7 +50,7 @@ pub struct A1Characters<const LENGTH: usize>([u8; LENGTH]);
 pub struct D1Characters<const LENGTH: usize>([u8; LENGTH]);
 
 /// Escape sequences conforming to ISO/IEC 2022, including the escape characters.
-/// 
+///
 /// If all the bytes of the escape sequences are zero, it shall mean that the set
 /// of a1-characters is identical to the set of a-characters.
 #[derive(Debug)]
@@ -111,7 +111,7 @@ bitflags::bitflags! {
   pub struct VolumeFlags: u8 {
     /// If zero, shall mean that the escape sequences field specifies only
     /// escape sequences registered by ISO/IEC 2375.
-    /// 
+    ///
     /// If one, shall mean that the escape sequences field includes
     /// atleast one escape sequence not registered according to ISO/IEC 2375.
     const UNREGISTERED_ESCAPE_SEQUENCES = 1 << 0;
@@ -385,4 +385,120 @@ pub struct ExtendedAttributeRecord {
   pub extended_attribute_record_version: ExtendedAttributeRecordVersion,
   pub application_use: Vec<u8>,
   pub escape_sequences: VariadicEscapeSequences,
+}
+
+#[derive(Debug)]
+#[repr(u8)]
+pub enum ElToritoHeaderId {
+  Standard = 1,
+  Other(u8),
+}
+
+#[derive(Debug)]
+#[repr(u8)]
+pub enum ElToritoPlatformId {
+  X86 = 0,
+  PowerPc = 1,
+  Mac = 2,
+  Other(u8),
+}
+
+#[derive(Debug)]
+#[repr(u8)]
+pub enum ElToritoBootIndicator {
+  Bootable = 0x88,
+  NonBootable = 0x00,
+  Other(u8),
+}
+
+#[derive(Debug)]
+pub struct ElToritoManufacturerId([u8; 16]);
+
+bitflags::bitflags! {
+  #[derive(Debug)]
+  pub struct ElToritoBootMediaType: u8 {
+    // TODO(meowesque): Bitfields
+  }
+
+  #[derive(Debug)]
+  pub struct ElToritoBootMediaTypeExt: u8 {
+    // TODO(meowesque): Bitfields
+    const CONTINUATION_ENTRY_FOLLOWS = 1 << 5;
+    const CONTAINS_ATAPI_DRIVER = 1 << 6;
+    const CONTAINS_SCSI_DRIVERS = 1 << 7;
+  }
+
+  #[derive(Debug)]
+  pub struct ElToritoExtensionRecordFollowsIndicator: u8 {
+    const EXTENSION_RECORD_FOLLOWS = 1 << 5;
+  }
+}
+
+#[repr(u8)]
+#[derive(Debug)]
+pub enum ElToritoHeaderIndicator {
+  MoreHeadersFollow = 90,
+  FinalHeader = 91,
+}
+
+#[derive(Debug)]
+pub struct ElToritoSectionId([u8; 16]);
+
+#[derive(Debug)]
+#[repr(u8)]
+pub enum ElToritoSelectionCriteriaType {
+  NoSelectionCriteria = 0,
+  LanguageAndVersionInformation = 1,
+  Other(u8),
+}
+
+#[derive(Debug)]
+pub struct ElToritoInitialSectionEntry {
+  pub boot_indicator: ElToritoBootIndicator,
+  pub boot_media_type: ElToritoBootMediaType,
+  pub load_segment: u16,
+  pub system_type: u8,
+  pub sector_count: u16,
+  pub virtual_disk_location: u32,
+}
+
+#[derive(Debug)]
+pub struct ElToritoSectionHeaderEntry {
+  pub header_indicator: ElToritoHeaderIndicator,
+  pub platform_id: ElToritoPlatformId,
+  pub succeeding_section_entries: u16,
+  pub section_id: ElToritoSectionId,
+}
+
+#[derive(Debug)]
+pub struct ElToritoValidationEntry {
+  pub header_id: ElToritoHeaderId,
+  pub platform_id: ElToritoPlatformId,
+  pub manufacturer_id: ElToritoManufacturerId,
+  pub checksum: u16,
+}
+
+#[derive(Debug)]
+pub struct ElToritoSectionEntry {
+  pub boot_indicator: ElToritoBootIndicator,
+  pub boot_media_type: ElToritoBootMediaTypeExt,
+  pub load_segment: u16,
+  pub system_type: u8,
+  pub sector_count: u16,
+  pub virtual_disk_location: u32,
+  pub selection_criteria_type: ElToritoSelectionCriteriaType,
+  pub vendor_selection_criteria: [u8; 31], // TODO(meowesque): Check if this is right
+}
+
+#[derive(Debug)]
+pub struct ElToritoSelectionEntryExtension {
+  pub extension_record_follows_indicator: ElToritoExtensionRecordFollowsIndicator,
+  pub vendor_unique_selection_criteria: [u8; 29], // TODO(meowesque): Check if this is right
+}
+
+#[derive(Debug)]
+pub struct ElToritoBootRecordVolumeDescriptor {
+  pub standard_identifier: StandardIdentifier,
+  pub version: VolumeDescriptorVersion,
+  pub boot_catalog_pointer: u32,
 }
