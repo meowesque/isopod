@@ -6,17 +6,22 @@ ISO 9660:2023 library currently in development, awaiting stable release.
 
 ## Roadmap
 
-* [ ] Joliet support
+* [ ] CDFS (ISO 9660)
+  
+  * [ ] Extensions
 
-  Currently WIP.
+    - [ ] Joliet Extension
+    - [ ] El Torito 
+    - [ ] Rock Ridge 
 
-* [ ] El Torito support
+  * [ ] Implementation
 
-  Currently WIP.
+    - [ ] Reader
+    - [ ] Writer
 
-* [ ] Rock Ridge support
-* [ ] Exhaustive specification implementation documentation
-* [ ] Example suite
+* [ ] UDF 
+
+  - [ ] Read/Write
 
 ## References
 
