@@ -1,4 +1,4 @@
-# [isofs](https://crates.io/crates/isofs)
+# isofs
 
 ![Crates.io Version](https://img.shields.io/crates/v/isofs)
 
