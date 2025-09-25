@@ -2,7 +2,7 @@
 
 ![Crates.io Version](https://img.shields.io/crates/v/isofs)
 
-Library for manipulating ISO 9660 and UDF filesystems. 
+A library for manipulating ISO 9660 and UDF filesystems. 
 
 ## Features
 
