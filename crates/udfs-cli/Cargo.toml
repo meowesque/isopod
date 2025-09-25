@@ -1,8 +1,8 @@
 [package]
-name = "isopod-cli"
+name = "udfs-cli"
 version = "0.0.0"
 edition = "2021"
 
 [dependencies]
 clap = { version = "4.5.46", features = ["derive"] }
-isopod.workspace = true
+udfs.workspace = true

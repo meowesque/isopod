@@ -1,8 +1,8 @@
-# UDF and ISO 9660 Filesystems Library
+# UDF Filesystem Library
 
 ![Crates.io Version](https://img.shields.io/crates/v/isopod)
 
-UDF and ISO 9660:2023 library currently in development, awaiting stable release.
+UDF library currently in development, awaiting stable release.
 
 ## Roadmap
 

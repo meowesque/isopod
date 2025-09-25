@@ -1,9 +1,9 @@
 [package]
-name = "isopod"
+name = "udfs"
 version = "0.0.0"
 edition = "2021"
 license = "MIT"
-description = "ISO 9660 filesystem library"
+description = "UDF filesystem library"
 
 [dependencies]
 arraystring = "0.3.0"

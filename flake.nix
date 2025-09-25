@@ -42,17 +42,17 @@
         ];
       in
       rec {
-        defaultPackage = packages.isopod-cli;
+        defaultPackage = packages.udfs-cli;
         packages = {
-          isopod-cli = naersk'.buildPackage {
+          udfs-cli = naersk'.buildPackage {
             src = ./.;
             nativeBuildInputs = nativeBuildInputs;
             buildInputs = buildInputs;
           };
           container = pkgs.dockerTools.buildImage {
-            name = "isopod-cli";
+            name = "udfs-cli";
             config = {
-              entrypoint = [ "${packages.isopod-cli}/bin/isopod-cli" ];
+              entrypoint = [ "${packages.udfs-cli}/bin/udfs-cli" ];
             };
           };
         };
