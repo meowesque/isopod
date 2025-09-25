@@ -1,4 +1,4 @@
-# UDF and ISO 9660 Filesystems Library
+# [isofs](https://crates.io/crates/isofs)
 
 ![Crates.io Version](https://img.shields.io/crates/v/isofs)
 
