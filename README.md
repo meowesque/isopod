@@ -8,16 +8,18 @@ UDF and ISO 9660:2023 library currently in development, awaiting stable release.
 
 * [ ] CDFS (ISO 9660)
   
-  * [ ] Extensions
-
-    - [ ] Joliet Extension
-    - [ ] El Torito 
-    - [ ] Rock Ridge 
-
   * [ ] Implementation
 
     - [ ] Reader
-    - [ ] Writer
+    
+    * [ ] Writer
+
+      * [ ] Serialization 
+
+        - [X] ISO 9660  
+        - [ ] Joliet 
+        - [ ] Rock Ridge 
+        - [ ] UDF
 
 * [ ] UDF 
 
