@@ -64,7 +64,7 @@ fn main() {
       todo!()
     }
     cli::Command::List { input, verbose } => {
-      list(input, verbose);
+      todo!()
     }
     cli::Command::Info { input } => {
       todo!()
