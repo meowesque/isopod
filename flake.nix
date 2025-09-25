@@ -42,17 +42,17 @@
         ];
       in
       rec {
-        defaultPackage = packages.udfs-cli;
+        defaultPackage = packages.isofs-cli;
         packages = {
-          udfs-cli = naersk'.buildPackage {
+          isofs-cli = naersk'.buildPackage {
             src = ./.;
             nativeBuildInputs = nativeBuildInputs;
             buildInputs = buildInputs;
           };
           container = pkgs.dockerTools.buildImage {
-            name = "udfs-cli";
+            name = "isofs-cli";
             config = {
-              entrypoint = [ "${packages.udfs-cli}/bin/udfs-cli" ];
+              entrypoint = [ "${packages.isofs-cli}/bin/isofs-cli" ];
             };
           };
         };

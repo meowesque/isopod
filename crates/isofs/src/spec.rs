@@ -1,4 +1,4 @@
-//! ISO 9660 specification types including extensions such as Joliet and Rock Ridge.
+//! UDF and ISO 9660 specification types including extensions such as Joliet and Rock Ridge.
 
 pub trait Extension {
   type FileIdentifier: std::fmt::Debug;
@@ -39,9 +39,29 @@ impl Extension for JolietExtension {
 #[derive(Debug)]
 pub struct ACharacters<const LENGTH: usize>(pub(crate) [u8; LENGTH]);
 
+impl<const LENGTH: usize> ACharacters<LENGTH> {
+  /// Convert from a byte slice, truncating or zero-padding as necessary.
+  pub fn from_bytes_truncated(bytes: &[u8]) -> Self {
+    // TODO(meowesque): Validate characters?
+    let mut cs = [0u8; LENGTH];
+    cs[..LENGTH.min(bytes.len())].copy_from_slice(&bytes[..LENGTH.min(bytes.len())]);
+    Self(cs)
+  }
+}
+
 /// `[0-9A-Z_]``
 #[derive(Debug)]
 pub struct DCharacters<const LENGTH: usize>(pub(crate) [u8; LENGTH]);
+
+impl<const LENGTH: usize> DCharacters<LENGTH> {
+  /// Convert from a byte slice, truncating or zero-padding as necessary.
+  pub fn from_bytes_truncated(bytes: &[u8]) -> Self {
+    // TODO(meowesque): Validate characters?
+    let mut cs = [0u8; LENGTH];
+    cs[..LENGTH.min(bytes.len())].copy_from_slice(&bytes[..LENGTH.min(bytes.len())]);
+    Self(cs)
+  }
+}
 
 #[derive(Debug)]
 pub struct A1Characters<const LENGTH: usize>(pub(crate) [u8; LENGTH]);

@@ -3,4 +3,4 @@ members = ["./crates/*"]
 resolver = "2"
 
 [workspace.dependencies]
-udfs = { path = "./crates/udfs" }
+isofs = { path = "./crates/isofs" }

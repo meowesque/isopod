@@ -138,6 +138,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7943c866cc5cd64cbc25b2e01621d07fa8eb2a1a23160ee81ce38704e97b8ecf"
 
 [[package]]
+name = "isofs"
+version = "0.0.0"
+dependencies = [
+ "arraystring",
+ "bitflags",
+ "bytemuck",
+ "byteorder",
+ "log",
+ "nom",
+ "thiserror",
+]
+
+[[package]]
+name = "isofs-cli"
+version = "0.0.0"
+dependencies = [
+ "clap",
+ "isofs",
+]
+
+[[package]]
 name = "log"
 version = "0.4.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -200,6 +221,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "tests"
+version = "0.0.0"
+dependencies = [
+ "isofs",
+]
+
+[[package]]
 name = "thiserror"
 version = "2.0.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -224,27 +252,6 @@ name = "typenum"
 version = "1.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1dccffe3ce07af9386bfd29e80c0ab1a8205a2fc34e4bcd40364df902cfa8f3f"
-
-[[package]]
-name = "udfs"
-version = "0.0.0"
-dependencies = [
- "arraystring",
- "bitflags",
- "bytemuck",
- "byteorder",
- "log",
- "nom",
- "thiserror",
-]
-
-[[package]]
-name = "udfs-cli"
-version = "0.0.0"
-dependencies = [
- "clap",
- "udfs",
-]
 
 [[package]]
 name = "unicode-ident"

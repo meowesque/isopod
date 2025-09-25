@@ -1,0 +1,11 @@
+[package]
+name = "tests"
+version = "0.0.0"
+publish = false
+
+[dev-dependencies]
+isofs.workspace = true
+
+[[test]]
+name = "test-iso9660"
+path = "iso9660.rs"
