@@ -2,28 +2,12 @@
 
 ![Crates.io Version](https://img.shields.io/crates/v/isofs)
 
-UDF library currently in development, awaiting stable release.
+Library for manipulating ISO 9660 and UDF filesystems. 
 
-## Roadmap
+## Features
 
-* [ ] CDFS (ISO 9660)
-  
-  * [ ] Implementation
-
-    - [ ] Reader
-    
-    * [ ] Writer
-
-      * [ ] Serialization 
-
-        - [X] ISO 9660  
-        - [ ] Joliet 
-        - [ ] Rock Ridge 
-        - [ ] UDF
-
-* [ ] UDF 
-
-  - [ ] Read/Write
+* `chrono` Enables conversion to/from [chrono](https://crates.io/crates/chrono) types.
+* `time` Enables conversion to/from [time](https://crates.io/crates/time) types. 
 
 ## References
 
