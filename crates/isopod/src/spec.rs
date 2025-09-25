@@ -1,7 +1,6 @@
 //! ISO 9660 specification types including extensions such as Joliet and Rock Ridge.
 
 pub trait Extension {
-  type FileFlags: std::fmt::Debug;
   type FileIdentifier: std::fmt::Debug;
   type DirectoryIdentifier: std::fmt::Debug;
 }
@@ -11,15 +10,17 @@ pub trait Extension {
 pub struct NoExtension;
 
 impl Extension for NoExtension {
-  type FileFlags = FileFlags;
   type FileIdentifier = FileIdentifier<32>;
   type DirectoryIdentifier = DirectoryIdentifier<31>;
 }
 
 #[derive(Debug)]
 pub enum JolietLevel {
+  /// UCS-2 Level 1
   Level1,
+  /// UCS-2 Level 2
   Level2,
+  /// UCS-2 Level 3
   Level3,
 }
 
@@ -30,41 +31,40 @@ pub struct JolietExtension {
 }
 
 impl Extension for JolietExtension {
-  type FileFlags = (); // TODO(meowesque): Define Joliet-specific file flags.
   type FileIdentifier = JolietFileIdentifier;
   type DirectoryIdentifier = JolietDirectoryIdentifier;
 }
 
 /// `[\s\!\"\%\&\'\(\)\*\+\,\-\.\/0-9A-Z\:\;\<\=\>\?\_A-Z0-9]`
 #[derive(Debug)]
-pub struct ACharacters<const LENGTH: usize>([u8; LENGTH]);
+pub struct ACharacters<const LENGTH: usize>(pub(crate) [u8; LENGTH]);
 
 /// `[0-9A-Z_]``
 #[derive(Debug)]
-pub struct DCharacters<const LENGTH: usize>([u8; LENGTH]);
+pub struct DCharacters<const LENGTH: usize>(pub(crate) [u8; LENGTH]);
 
 #[derive(Debug)]
-pub struct A1Characters<const LENGTH: usize>([u8; LENGTH]);
+pub struct A1Characters<const LENGTH: usize>(pub(crate) [u8; LENGTH]);
 
 #[derive(Debug)]
-pub struct D1Characters<const LENGTH: usize>([u8; LENGTH]);
+pub struct D1Characters<const LENGTH: usize>(pub(crate) [u8; LENGTH]);
 
 /// Escape sequences conforming to ISO/IEC 2022, including the escape characters.
 ///
 /// If all the bytes of the escape sequences are zero, it shall mean that the set
 /// of a1-characters is identical to the set of a-characters.
 #[derive(Debug)]
-pub struct EscapeSequences<const LENGTH: usize>([u8; LENGTH]);
+pub struct EscapeSequences<const LENGTH: usize>(pub(crate) [u8; LENGTH]);
 
 /// Escape sequences conforming to ISO/IEC 2022, excluding the escape characters.
 #[derive(Debug)]
-pub struct VariadicEscapeSequences(Vec<u8>);
+pub struct VariadicEscapeSequences(pub(crate) Vec<u8>);
 
 #[derive(Debug)]
-pub struct JolietFileIdentifier([u16; 64]);
+pub struct JolietFileIdentifier(pub(crate) [u16; 64]);
 
 #[derive(Debug)]
-pub struct JolietDirectoryIdentifier([u16; 64]);
+pub struct JolietDirectoryIdentifier(pub(crate) [u16; 64]);
 
 bitflags::bitflags! {
   #[derive(Debug)]
@@ -126,22 +126,22 @@ bitflags::bitflags! {
 }
 
 #[derive(Debug)]
-pub struct FileIdentifier<const LENGTH: usize>([u8; LENGTH]);
+pub struct FileIdentifier<const LENGTH: usize>(pub(crate) [u8; LENGTH]);
 
 /// `DCharacters`/`D1Characters`.
 #[derive(Debug)]
-pub struct DirectoryIdentifier<const LENGTH: usize>([u8; LENGTH]);
+pub struct DirectoryIdentifier<const LENGTH: usize>(pub(crate) [u8; LENGTH]);
 
 /// TODO(meowesque): Define this better?
 #[derive(Debug)]
-pub struct OwnerIdentification(u16);
+pub struct OwnerIdentification(pub(crate) u16);
 
 /// TODO(meowesque): Define this better?
 #[derive(Debug)]
-pub struct GroupIdentification(u16);
+pub struct GroupIdentification(pub(crate) u16);
 
 #[repr(u8)]
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum RecordFormat {
   StructureNotSpecified = 0,
   FixedLengthRecords = 1,
@@ -150,8 +150,20 @@ pub enum RecordFormat {
   Other(u8),
 }
 
+impl Into<u8> for RecordFormat {
+  fn into(self) -> u8 {
+    match self {
+      RecordFormat::StructureNotSpecified => 0,
+      RecordFormat::FixedLengthRecords => 1,
+      RecordFormat::VariableLengthRecordsMsb => 2,
+      RecordFormat::VariableLengthRecordsLsb => 3,
+      RecordFormat::Other(v) => v,
+    }
+  }
+}
+
 #[repr(u8)]
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum RecordAttributes {
   PreceededByLfcFollowedByCrc = 0,
   /// First byte of the record shall be interpreted as specified in ISO/IEC 1539-1 for vertical spacing.
@@ -160,11 +172,31 @@ pub enum RecordAttributes {
   Other(u8),
 }
 
+impl Into<u8> for RecordAttributes {
+  fn into(self) -> u8 {
+    match self {
+      RecordAttributes::PreceededByLfcFollowedByCrc => 0,
+      RecordAttributes::FirstByteInterpretedByIso15391 => 1,
+      RecordAttributes::ContainsNecessaryControlInformation => 2,
+      RecordAttributes::Other(v) => v,
+    }
+  }
+}
+
 #[repr(u8)]
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum ExtendedAttributeRecordVersion {
   Standard = 1,
   Other(u8),
+}
+
+impl Into<u8> for ExtendedAttributeRecordVersion {
+  fn into(self) -> u8 {
+    match self {
+      ExtendedAttributeRecordVersion::Standard => 1,
+      ExtendedAttributeRecordVersion::Other(v) => v,
+    }
+  }
 }
 
 #[derive(Debug)]
@@ -185,58 +217,114 @@ pub enum StandardIdentifier {
   Other([u8; 5]),
 }
 
-#[derive(Debug)]
+impl StandardIdentifier {
+  pub fn as_bytes(&self) -> &[u8; 5] {
+    match self {
+      StandardIdentifier::Cd001 => b"CD001",
+      StandardIdentifier::Bea01 => b"BEA01",
+      StandardIdentifier::Nsr02 => b"NSR02",
+      StandardIdentifier::Nsr03 => b"NSR03",
+      StandardIdentifier::Boot2 => b"BOOT2",
+      StandardIdentifier::Tea01 => b"TEA01",
+      StandardIdentifier::Other(v) => v,
+    }
+  }
+}
+
+#[repr(u8)]
+#[derive(Debug, Clone, Copy)]
+pub enum VolumeDescriptorType {
+  BootRecord = 0,
+  Primary = 1,
+  Supplementary = 2,
+  Partition = 3,
+  Other(u8),
+  Terminator = 255,
+}
+
+impl Into<u8> for VolumeDescriptorType {
+  fn into(self) -> u8 {
+    match self {
+      VolumeDescriptorType::BootRecord => 0,
+      VolumeDescriptorType::Primary => 1,
+      VolumeDescriptorType::Supplementary => 2,
+      VolumeDescriptorType::Partition => 3,
+      VolumeDescriptorType::Other(v) => v,
+      VolumeDescriptorType::Terminator => 255,
+    }
+  }
+}
+
+#[derive(Debug, Clone, Copy)]
 #[repr(u8)]
 pub enum VolumeDescriptorVersion {
   Standard = 1,
   Other(u8),
 }
 
-#[derive(Debug)]
+impl Into<u8> for VolumeDescriptorVersion {
+  fn into(self) -> u8 {
+    match self {
+      VolumeDescriptorVersion::Standard => 1,
+      VolumeDescriptorVersion::Other(v) => v,
+    }
+  }
+}
+
+#[derive(Debug, Clone, Copy)]
 #[repr(u8)]
 pub enum FileStructureVersion {
   Standard = 1,
   Other(u8),
 }
 
-#[derive(Debug)]
-pub struct DigitsYear(u16);
+impl Into<u8> for FileStructureVersion {
+  fn into(self) -> u8 {
+    match self {
+      FileStructureVersion::Standard => 1,
+      FileStructureVersion::Other(v) => v,
+    }
+  }
+}
 
 #[derive(Debug)]
-pub struct DigitsMonth(u8);
+pub struct DigitsYear(pub(crate) u16);
 
 #[derive(Debug)]
-pub struct DigitsDay(u8);
+pub struct DigitsMonth(pub(crate) u8);
 
 #[derive(Debug)]
-pub struct DigitsHour(u8);
+pub struct DigitsDay(pub(crate) u8);
 
 #[derive(Debug)]
-pub struct DigitsMinute(u8);
+pub struct DigitsHour(pub(crate) u8);
 
 #[derive(Debug)]
-pub struct DigitsSecond(u8);
+pub struct DigitsMinute(pub(crate) u8);
 
 #[derive(Debug)]
-pub struct NumericalYear(u8);
+pub struct DigitsSecond(pub(crate) u8);
 
 #[derive(Debug)]
-pub struct NumericalMonth(u8);
+pub struct NumericalYear(pub(crate) u8);
 
 #[derive(Debug)]
-pub struct NumericalDay(u8);
+pub struct NumericalMonth(pub(crate) u8);
 
 #[derive(Debug)]
-pub struct NumericalHour(u8);
+pub struct NumericalDay(pub(crate) u8);
 
 #[derive(Debug)]
-pub struct NumericalMinute(u8);
+pub struct NumericalHour(pub(crate) u8);
 
 #[derive(Debug)]
-pub struct NumericalSecond(u8);
+pub struct NumericalMinute(pub(crate) u8);
 
 #[derive(Debug)]
-pub struct NumericalGmtOffset(i8);
+pub struct NumericalSecond(pub(crate) u8);
+
+#[derive(Debug)]
+pub struct NumericalGmtOffset(pub(crate) i8);
 
 #[derive(Debug)]
 pub struct DigitsDate {
@@ -261,7 +349,7 @@ pub struct NumericalDate {
 }
 
 #[derive(Debug)]
-pub struct PrimaryVolumeDescriptor<Ext: Extension> {
+pub struct PrimaryVolumeDescriptor {
   pub standard_identifier: StandardIdentifier,
   pub version: VolumeDescriptorVersion,
   pub system_identifier: ACharacters<32>,
@@ -275,7 +363,7 @@ pub struct PrimaryVolumeDescriptor<Ext: Extension> {
   pub optional_type_l_path_table_location: u32,
   pub type_m_path_table_location: u32,
   pub optional_type_m_path_table_location: u32,
-  pub root_directory_record: RootDirectoryRecord<Ext>,
+  pub root_directory_record: RootDirectoryRecord,
   pub volume_set_identifier: DCharacters<128>,
   pub publisher_identifier: ACharacters<128>,
   pub data_preparer_identifier: ACharacters<128>,
@@ -292,7 +380,7 @@ pub struct PrimaryVolumeDescriptor<Ext: Extension> {
 }
 
 #[derive(Debug)]
-pub struct SupplementaryVolumeDescriptor<Ext: Extension> {
+pub struct SupplementaryVolumeDescriptor {
   pub standard_identifier: StandardIdentifier,
   pub version: VolumeDescriptorVersion,
   pub volume_flags: VolumeFlags,
@@ -308,7 +396,7 @@ pub struct SupplementaryVolumeDescriptor<Ext: Extension> {
   pub optional_type_l_path_table_location: u32,
   pub type_m_path_table_location: u32,
   pub optional_type_m_path_table_location: u32,
-  pub root_directory_record: RootDirectoryRecord<Ext>,
+  pub root_directory_record: RootDirectoryRecord,
   pub volume_set_identifier: D1Characters<128>,
   pub publisher_identifier: A1Characters<128>,
   pub data_preparer_identifier: A1Characters<128>,
@@ -341,7 +429,7 @@ pub struct DirectoryRecord<Ext: Extension> {
   pub extent_location: u32,
   pub data_length: u32,
   pub recording_date: NumericalDate,
-  pub file_flags: Ext::FileFlags,
+  pub file_flags: FileFlags,
   pub file_unit_size: u8,
   pub interleave_gap_size: u8,
   pub volume_sequence_number: u16,
@@ -353,11 +441,11 @@ pub struct DirectoryRecord<Ext: Extension> {
 /// `PrimaryVolumeDescriptor`. Like `DirectoryRecord` but without the `length`
 /// and `extended_attribute_length` fields.
 #[derive(Debug)]
-pub struct RootDirectoryRecord<Ext: Extension> {
+pub struct RootDirectoryRecord {
   pub extent_location: u32,
   pub data_length: u32,
   pub recording_date: NumericalDate,
-  pub file_flags: Ext::FileFlags,
+  pub file_flags: FileFlags,
   pub file_unit_size: u8,
   pub interleave_gap_size: u8,
   pub volume_sequence_number: u16,
@@ -387,14 +475,23 @@ pub struct ExtendedAttributeRecord {
   pub escape_sequences: VariadicEscapeSequences,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 #[repr(u8)]
 pub enum ElToritoHeaderId {
   Standard = 1,
   Other(u8),
 }
 
-#[derive(Debug)]
+impl Into<u8> for ElToritoHeaderId {
+  fn into(self) -> u8 {
+    match self {
+      ElToritoHeaderId::Standard => 1,
+      ElToritoHeaderId::Other(v) => v,
+    }
+  }
+}
+
+#[derive(Debug, Clone, Copy)]
 #[repr(u8)]
 pub enum ElToritoPlatformId {
   X86 = 0,
@@ -403,7 +500,18 @@ pub enum ElToritoPlatformId {
   Other(u8),
 }
 
-#[derive(Debug)]
+impl Into<u8> for ElToritoPlatformId {
+  fn into(self) -> u8 {
+    match self {
+      ElToritoPlatformId::X86 => 0,
+      ElToritoPlatformId::PowerPc => 1,
+      ElToritoPlatformId::Mac => 2,
+      ElToritoPlatformId::Other(v) => v,
+    }
+  }
+}
+
+#[derive(Debug, Clone, Copy)]
 #[repr(u8)]
 pub enum ElToritoBootIndicator {
   Bootable = 0x88,
@@ -411,45 +519,92 @@ pub enum ElToritoBootIndicator {
   Other(u8),
 }
 
+impl Into<u8> for ElToritoBootIndicator {
+  fn into(self) -> u8 {
+    match self {
+      ElToritoBootIndicator::Bootable => 0x88,
+      ElToritoBootIndicator::NonBootable => 0x00,
+      ElToritoBootIndicator::Other(v) => v,
+    }
+  }
+}
+
 #[derive(Debug)]
-pub struct ElToritoManufacturerId([u8; 16]);
+pub struct ElToritoManufacturerId(pub(crate) [u8; 16]);
 
 bitflags::bitflags! {
-  #[derive(Debug)]
-  pub struct ElToritoBootMediaType: u8 {
-    // TODO(meowesque): Bitfields
-  }
-
-  #[derive(Debug)]
-  pub struct ElToritoBootMediaTypeExt: u8 {
-    // TODO(meowesque): Bitfields
-    const CONTINUATION_ENTRY_FOLLOWS = 1 << 5;
-    const CONTAINS_ATAPI_DRIVER = 1 << 6;
-    const CONTAINS_SCSI_DRIVERS = 1 << 7;
-  }
-
   #[derive(Debug)]
   pub struct ElToritoExtensionRecordFollowsIndicator: u8 {
     const EXTENSION_RECORD_FOLLOWS = 1 << 5;
   }
 }
 
+// TODO(meowesque): Implement
+#[derive(Debug, Clone, Copy)]
+pub struct ElToritoBootMediaType(pub(crate) u8);
+
+impl Into<u8> for ElToritoBootMediaType {
+  fn into(self) -> u8 {
+    self.0
+  }
+}
+
 #[repr(u8)]
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
+pub enum ElToritoEmulationType {
+  NoEmulation = 0,
+  Floppy12M = 1,
+  Floppy144M = 2,
+  Floppy288M = 3,
+  HardDisk = 4,
+}
+
+impl Into<u8> for ElToritoEmulationType {
+  fn into(self) -> u8 {
+    match self {
+      ElToritoEmulationType::NoEmulation => 0,
+      ElToritoEmulationType::Floppy12M => 1,
+      ElToritoEmulationType::Floppy144M => 2,
+      ElToritoEmulationType::Floppy288M => 3,
+      ElToritoEmulationType::HardDisk => 4,
+    }
+  }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ElToritoBootMediaTypeExt {
+  pub emulation_type: ElToritoEmulationType,
+  pub continuation_entry_follows: bool,
+  pub contains_atapi_driver: bool,
+  pub contains_scsi_drivers: bool,
+}
+
+#[repr(u8)]
+#[derive(Debug, Clone, Copy)]
 pub enum ElToritoHeaderIndicator {
   MoreHeadersFollow = 90,
   FinalHeader = 91,
 }
 
-#[derive(Debug)]
-pub struct ElToritoSectionId([u8; 16]);
+#[derive(Debug, Clone, Copy)]
+pub struct ElToritoSectionId(pub(crate) [u8; 16]);
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 #[repr(u8)]
 pub enum ElToritoSelectionCriteriaType {
   NoSelectionCriteria = 0,
   LanguageAndVersionInformation = 1,
   Other(u8),
+}
+
+impl Into<u8> for ElToritoSelectionCriteriaType {
+  fn into(self) -> u8 {
+    match self {
+      ElToritoSelectionCriteriaType::NoSelectionCriteria => 0,
+      ElToritoSelectionCriteriaType::LanguageAndVersionInformation => 1,
+      ElToritoSelectionCriteriaType::Other(v) => v,
+    }
+  }
 }
 
 #[derive(Debug)]
@@ -487,13 +642,13 @@ pub struct ElToritoSectionEntry {
   pub sector_count: u16,
   pub virtual_disk_location: u32,
   pub selection_criteria_type: ElToritoSelectionCriteriaType,
-  pub vendor_selection_criteria: [u8; 31], // TODO(meowesque): Check if this is right
+  pub vendor_selection_criteria: [u8; 18],
 }
 
 #[derive(Debug)]
-pub struct ElToritoSelectionEntryExtension {
+pub struct ElToritoSectionEntryExtension {
   pub extension_record_follows_indicator: ElToritoExtensionRecordFollowsIndicator,
-  pub vendor_unique_selection_criteria: [u8; 29], // TODO(meowesque): Check if this is right
+  pub vendor_unique_selection_criteria: [u8; 29],
 }
 
 #[derive(Debug)]
