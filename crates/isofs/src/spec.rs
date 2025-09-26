@@ -499,6 +499,9 @@ pub struct VolumePartitionDescriptor {
 }
 
 #[derive(Debug)]
+pub struct VolumeDescriptorSetTerminator;
+
+#[derive(Debug)]
 pub struct DirectoryRecord<Ext: Extension> {
   pub length: u8,
   pub extended_attribute_length: u8,

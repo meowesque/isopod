@@ -744,6 +744,21 @@ impl IsoSerialize for VolumePartitionDescriptor {
   }
 }
 
+impl IsoSerialize for VolumeDescriptorSetTerminator {
+  fn extent(&self) -> usize {
+    2048
+  }
+
+  unsafe fn serialize_unchecked(&self, out: &mut [u8]) -> Result<()> {
+    out[0] = VolumeDescriptorType::Terminator.into();
+    out[1..6].copy_from_slice(b"CD001"); // TODO(meowesque): This might be different depending on the serialization context
+    out[6] = VolumeDescriptorVersion::Standard.into();
+    out[7..2048].fill(0);
+
+    Ok(())
+  }
+}
+
 impl<Ext: Extension> IsoSerialize for DirectoryRecord<Ext>
 where
   Ext::FileIdentifier: IsoSerialize,
