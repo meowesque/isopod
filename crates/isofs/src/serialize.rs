@@ -799,7 +799,7 @@ impl IsoSerialize for RootDirectoryRecord {
     out[27] = self.interleave_gap_size;
     out[28..30].copy_from_slice(&self.volume_sequence_number.to_le_bytes());
     out[30..32].copy_from_slice(&self.volume_sequence_number.to_be_bytes());
-    out[32] = 0;
+    out[32] = 0; // NOTE(meowesque): This might be one
     out[33] = 0;
 
     Ok(())
