@@ -477,8 +477,8 @@ pub struct SupplementaryVolumeDescriptor {
   pub publisher_identifier: A1Characters<128>,
   pub data_preparer_identifier: A1Characters<128>,
   pub application_identifier: A1Characters<128>,
-  pub copyright_file_identifier: D1Characters<38>, // Separator 1 and 2
-  pub abstract_file_identifier: D1Characters<36>,  // Separator 1 and
+  pub copyright_file_identifier: D1Characters<37>, // Separator 1 and 2
+  pub abstract_file_identifier: D1Characters<37>,  // Separator 1 and 2
   pub bibliographic_file_identifier: D1Characters<37>, // Separator 1 and 2
   pub creation_date: DigitsDate,
   pub modification_date: DigitsDate,
