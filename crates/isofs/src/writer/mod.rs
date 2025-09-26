@@ -1,4 +1,8 @@
-use crate::{serialize::IsoSerialize, spec, writer::volume::VolumeLike};
+use crate::{
+  serialize::IsoSerialize,
+  spec::{self, VolumeDescriptorSetTerminator},
+  writer::volume::VolumeLike,
+};
 
 pub mod error;
 pub mod fs;
@@ -107,13 +111,15 @@ impl IsoWriter {
     {
       match entry {
         fs::Entry::File(file_entry) => write_file_entry(&mut *writer, file_entry, sector_size),
-        fs::Entry::Directory(dir_entry) => write_directory_entry(&mut *writer, dir_entry, sector_size),
+        fs::Entry::Directory(dir_entry) => {
+          write_directory_entry(&mut *writer, dir_entry, sector_size)
+        }
       }
     }
 
     let mut allocator = lba::LbaAllocator::new(
       self.options.sector_size as u32,
-      self.volumes.len() as u32 + 16,
+      /* System use */ 16 + self.volumes.len() as u32 + /* Set terminator */ 1,
     );
 
     let context = volume::VolumeContext {
@@ -124,7 +130,9 @@ impl IsoWriter {
     {
       let mut bytes: [u8; 2048] = [0; 2048];
 
-      writer.seek(std::io::SeekFrom::Start(0))?;
+      writer.seek(std::io::SeekFrom::Start(
+        16 * 2048,
+      ))?;
 
       for volume in self.volumes.iter_mut() {
         match volume {
@@ -136,6 +144,14 @@ impl IsoWriter {
           }
         }
       }
+
+      writer.seek(std::io::SeekFrom::Start(
+        (self.volumes.len() as u64 + 16) * self.options.sector_size as u64,
+      ))?;
+
+      spec::VolumeDescriptorSetTerminator.serialize(&mut bytes)?;
+
+      writer.write_all(&bytes)?;
     }
 
     Ok(())

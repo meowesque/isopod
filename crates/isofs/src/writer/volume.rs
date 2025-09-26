@@ -1,4 +1,4 @@
-use crate::spec;
+use crate::{spec, writer::fs::EntryLike};
 
 pub struct VolumeContext {
   pub sector_size: u32,
@@ -41,15 +41,7 @@ impl VolumeLike for PrimaryVolume {
       optional_type_l_path_table_location: 0,
       type_m_path_table_location: 0,
       optional_type_m_path_table_location: 0,
-      root_directory_record: spec::RootDirectoryRecord {
-        extent_location: 0,
-        data_length: 0,
-        recording_date: chrono::Utc::now().into(),
-        file_flags: spec::FileFlags::DIRECTORY,
-        file_unit_size: 0,
-        interleave_gap_size: 0,
-        volume_sequence_number: 0,
-      },
+      root_directory_record: self.filesystem.root.root_descriptor(),
       volume_set_identifier: spec::DCharacters::from_bytes_truncated(b"abc"),
       publisher_identifier: spec::ACharacters::from_bytes_truncated(b"hi noxie (:"),
       data_preparer_identifier: spec::ACharacters::from_bytes_truncated(b"def"),

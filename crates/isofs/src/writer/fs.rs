@@ -202,6 +202,7 @@ pub struct RootDirectory {
   pub entries: Vec<Entry>,
 }
 
+
 impl EntryLike for RootDirectory {
   fn extent_lba(&self) -> Option<u32> {
     self.extent_lba
@@ -242,6 +243,24 @@ impl DirectoryLike for RootDirectory {
 
   fn entries_mut(&mut self) -> &mut Vec<Entry> {
     &mut self.entries
+  }
+}
+
+impl RootDirectory {
+  pub fn root_descriptor(&self) -> spec::RootDirectoryRecord {
+    spec::RootDirectoryRecord {
+      extent_location: self.extent_lba.unwrap_or(0),
+      data_length: self
+        .entries
+        .iter()
+        .map(|e| e.descriptor().length as u32)
+        .sum(),
+      recording_date: chrono::Utc::now().into(),
+      file_flags: spec::FileFlags::DIRECTORY,
+      file_unit_size: 0,
+      interleave_gap_size: 0,
+      volume_sequence_number: 1,
+    }
   }
 }
 
