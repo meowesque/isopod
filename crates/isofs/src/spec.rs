@@ -148,6 +148,16 @@ bitflags::bitflags! {
 #[derive(Debug)]
 pub struct FileIdentifier<const LENGTH: usize>(pub(crate) [u8; LENGTH]);
 
+impl<const LENGTH: usize> FileIdentifier<LENGTH> {
+  /// Convert from a byte slice, truncating or zero-padding as necessary.
+  pub fn from_bytes_truncated(bytes: &[u8]) -> Self {
+    // TODO(meowesque): Validate characters?
+    let mut cs = [0u8; LENGTH];
+    cs[..LENGTH.min(bytes.len())].copy_from_slice(&bytes[..LENGTH.min(bytes.len())]);
+    Self(cs)
+  }
+}
+
 /// `DCharacters`/`D1Characters`.
 #[derive(Debug)]
 pub struct DirectoryIdentifier<const LENGTH: usize>(pub(crate) [u8; LENGTH]);

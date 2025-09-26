@@ -10,16 +10,29 @@ fn main() {
     standard: Standard::Iso9660,
   });
 
-  let mut file = std::fs::File::create("./data/test-iso9660.iso").unwrap();
+  let mut filesystem = isofs::writer::fs::Filesystem::default();
 
-  iso.add_volume(Volume::Primary(PrimaryVolume {
+  filesystem.upsert_file("a/b/c", "./data/file1.txt").unwrap();
+
+  filesystem
+    .upsert_file("a/b/c.txt", "./data/file1.txt")
+    .unwrap();
+
+  dbg!(&filesystem);
+
+  iso.add_volume(isofs::writer::volume::PrimaryVolume {
     volume_id: "TEST_ISO9660".to_string(),
     publisher: Some("Publisher".to_string()),
     preparer: None,
-    filesystem: Filesystem::default(),
-  }));
+    filesystem,
+  });
 
-  iso.write(&mut file).unwrap();
+  let file = std::fs::File::create("./data/test-iso9660.iso").unwrap();
+  let mut writer = std::io::BufWriter::new(file);
+
+  iso
+    .write(&mut writer)
+    .unwrap();
 
   /*let cli = cli::Cli::parse();
 

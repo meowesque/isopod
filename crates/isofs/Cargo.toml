@@ -5,11 +5,17 @@ edition = "2021"
 license = "MIT"
 description = "UDF filesystem library"
 
+[features]
+# TODO(meowesque) Remove this.
+default = ["chrono", "time"]
+chrono = ["dep:chrono"]
+time = ["dep:time"]
+
 [dependencies]
-arraystring = "0.3.0"
 bitflags = "2.9.4"
 bytemuck = "1.23.2"
 byteorder = "1.5.0"
 log = "0.4.28"
-nom = "8.0.0"
 thiserror = "2.0.16"
+chrono = { version = "0.4.42", optional = true }
+time = { version = "0.3.44", optional = true }
