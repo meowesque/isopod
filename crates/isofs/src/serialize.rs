@@ -44,7 +44,7 @@ impl<const LENGTH: usize> IsoSerialize for ACharacters<LENGTH> {
 
 impl<const LENGTH: usize> IsoSerialize for DCharacters<LENGTH> {
   fn extent(&self) -> usize {
-    self.0.len()
+    LENGTH
   }
 
   unsafe fn serialize_unchecked(&self, out: &mut [u8]) -> Result<()> {
@@ -259,12 +259,12 @@ impl IsoSerialize for FileStructureVersion {
 
 impl IsoSerialize for DigitsYear {
   fn extent(&self) -> usize {
-    (self.0.checked_ilog10().unwrap_or(0) + 1) as usize
+    4
   }
 
   unsafe fn serialize_unchecked(&self, out: &mut [u8]) -> Result<()> {
     // TODO(meowesque): This is inefficient
-    let s = self.0.to_string();
+    let s = format!("{:04}", self.0);
     out[..s.len()].copy_from_slice(s.as_bytes());
     Ok(())
   }
@@ -272,12 +272,12 @@ impl IsoSerialize for DigitsYear {
 
 impl IsoSerialize for DigitsMonth {
   fn extent(&self) -> usize {
-    (self.0.checked_ilog10().unwrap_or(0) + 1) as usize
+    2
   }
 
   unsafe fn serialize_unchecked(&self, out: &mut [u8]) -> Result<()> {
     // TODO(meowesque): This is inefficient
-    let s = self.0.to_string();
+    let s = format!("{:02}", self.0);
     out[..s.len()].copy_from_slice(s.as_bytes());
     Ok(())
   }
@@ -285,12 +285,12 @@ impl IsoSerialize for DigitsMonth {
 
 impl IsoSerialize for DigitsDay {
   fn extent(&self) -> usize {
-    (self.0.checked_ilog10().unwrap_or(0) + 1) as usize
+    2
   }
 
   unsafe fn serialize_unchecked(&self, out: &mut [u8]) -> Result<()> {
     // TODO(meowesque): This is inefficient
-    let s = self.0.to_string();
+    let s = format!("{:02}", self.0);
     out[..s.len()].copy_from_slice(s.as_bytes());
     Ok(())
   }
@@ -298,12 +298,12 @@ impl IsoSerialize for DigitsDay {
 
 impl IsoSerialize for DigitsHour {
   fn extent(&self) -> usize {
-    (self.0.checked_ilog10().unwrap_or(0) + 1) as usize
+    2
   }
 
   unsafe fn serialize_unchecked(&self, out: &mut [u8]) -> Result<()> {
     // TODO(meowesque): This is inefficient
-    let s = self.0.to_string();
+    let s = format!("{:02}", self.0);
     out[..s.len()].copy_from_slice(s.as_bytes());
     Ok(())
   }
@@ -311,12 +311,12 @@ impl IsoSerialize for DigitsHour {
 
 impl IsoSerialize for DigitsMinute {
   fn extent(&self) -> usize {
-    (self.0.checked_ilog10().unwrap_or(0) + 1) as usize
+    2
   }
 
   unsafe fn serialize_unchecked(&self, out: &mut [u8]) -> Result<()> {
     // TODO(meowesque): This is inefficient
-    let s = self.0.to_string();
+    let s = format!("{:02}", self.0);
     out[..s.len()].copy_from_slice(s.as_bytes());
     Ok(())
   }
@@ -324,12 +324,24 @@ impl IsoSerialize for DigitsMinute {
 
 impl IsoSerialize for DigitsSecond {
   fn extent(&self) -> usize {
-    (self.0.checked_ilog10().unwrap_or(0) + 1) as usize
+    2
   }
 
   unsafe fn serialize_unchecked(&self, out: &mut [u8]) -> Result<()> {
     // TODO(meowesque): This is inefficient
-    let s = self.0.to_string();
+    let s = format!("{:02}", self.0);
+    out[..s.len()].copy_from_slice(s.as_bytes());
+    Ok(())
+  }
+}
+
+impl IsoSerialize for DigitsHundreths {
+  fn extent(&self) -> usize {
+    2
+  }
+
+  unsafe fn serialize_unchecked(&self, out: &mut [u8]) -> Result<()> {
+    let s = format!("{:02}", self.0);
     out[..s.len()].copy_from_slice(s.as_bytes());
     Ok(())
   }
@@ -420,6 +432,7 @@ impl IsoSerialize for DigitsDate {
       + self.hour.extent()
       + self.minute.extent()
       + self.second.extent()
+      + self.hundreths.extent()
       + self.gmt_offset.extent()
   }
 
@@ -454,6 +467,16 @@ impl IsoSerialize for DigitsDate {
     self
       .second
       .serialize_unchecked(&mut out[offset..offset + self.second.extent()])?;
+    offset += self.second.extent();
+
+    self
+      .hundreths
+      .serialize_unchecked(&mut out[offset..offset + self.hundreths.extent()])?;
+    offset += self.hundreths.extent();
+
+    self
+      .gmt_offset
+      .serialize_unchecked(&mut out[offset..offset + self.gmt_offset.extent()])?;
 
     Ok(())
   }
@@ -461,7 +484,7 @@ impl IsoSerialize for DigitsDate {
 
 impl IsoSerialize for NumericalDate {
   fn extent(&self) -> usize {
-    self.year.extent()
+    self.years_since_1900.extent()
       + self.month.extent()
       + self.day.extent()
       + self.hour.extent()
@@ -474,9 +497,9 @@ impl IsoSerialize for NumericalDate {
     let mut offset = 0;
 
     self
-      .year
-      .serialize_unchecked(&mut out[offset..offset + self.year.extent()])?;
-    offset += self.year.extent();
+      .years_since_1900
+      .serialize_unchecked(&mut out[offset..offset + self.years_since_1900.extent()])?;
+    offset += self.years_since_1900.extent();
 
     self
       .month
@@ -523,36 +546,73 @@ impl IsoSerialize for PrimaryVolumeDescriptor {
       .volume_identifier
       .serialize_unchecked(&mut out[40..72])?;
     out[72..80].fill(0);
+
     out[80..84].copy_from_slice(&self.volume_space_size.to_le_bytes());
     out[84..88].copy_from_slice(&self.volume_space_size.to_be_bytes());
+
     out[88..120].fill(0);
+
     out[120..122].copy_from_slice(&self.volume_set_size.to_le_bytes());
     out[122..124].copy_from_slice(&self.volume_set_size.to_be_bytes());
+
     out[124..126].copy_from_slice(&self.volume_sequence_number.to_le_bytes());
     out[126..128].copy_from_slice(&self.volume_sequence_number.to_be_bytes());
+
     out[128..130].copy_from_slice(&self.logical_block_size.to_le_bytes());
     out[130..132].copy_from_slice(&self.logical_block_size.to_be_bytes());
+
     out[132..136].copy_from_slice(&self.path_table_size.to_le_bytes());
     out[136..140].copy_from_slice(&self.path_table_size.to_be_bytes());
+
     out[140..144].copy_from_slice(&self.type_l_path_table_location.to_le_bytes());
+
     out[144..148].copy_from_slice(&self.optional_type_l_path_table_location.to_le_bytes());
+
     out[148..152].copy_from_slice(&self.type_m_path_table_location.to_be_bytes());
+
     out[152..156].copy_from_slice(&self.optional_type_m_path_table_location.to_be_bytes());
+
     self
       .root_directory_record
       .serialize_unchecked(&mut out[156..190])?;
+
     self
       .volume_set_identifier
       .serialize_unchecked(&mut out[190..318])?;
     self
       .publisher_identifier
       .serialize_unchecked(&mut out[318..446])?;
+
+    // TODO(meowesque): If the first btye is set to 5f, the remaining bytes of
+    // TODO(meowesque): this field shall specify an identifier for a file containing
+    // TODO(meowesque): the identification of the data preparer. This file shall be
+    // TODO(meowesque): described in the root directory. The file name shall not contain
+    // TODO(meowesque): contain more than 8 d-characters and the file name extension shall
+    // TODO(meowesque): not contain more than 3 d-characters.
     self
       .data_preparer_identifier
       .serialize_unchecked(&mut out[446..574])?;
+
+    // TODO(meowesque): If the first btye is set to 5f, the remaining bytes of
+    // TODO(meowesque): this field shall specify an identifier for a file containing
+    // TODO(meowesque): the identification of the data preparer. This file shall be
+    // TODO(meowesque): described in the root directory. The file name shall not contain
+    // TODO(meowesque): contain more than 8 d-characters and the file name extension shall
+    // TODO(meowesque): not contain more than 3 d-characters.
     self
       .application_identifier
       .serialize_unchecked(&mut out[574..702])?;
+
+    // TODO(meowesque): This field shall specify an identification for
+    // TODO(meowesque): a file described by the root directory and
+    // TODO(meowesque): containing the copyright statement for those volumes
+    // TODO(meowesque): of the volume set the sequence numbers of which are
+    // TODO(meowesque): less than, or equal to, the assigned volume set size
+    // TODO(meowesque): of the volume. IF all bytes of this field are set
+    // TODO(meowesque): to filler, it shall mean that no such file is identified.
+    // TODO(meowesque): The file name shall not contain contain more than 8
+    // TODO(meowesque): d-characters and the file name extension shall not contain
+    // TODO(meowesque): more than 3 d-characters.
     self
       .copyright_file_identifier
       .serialize_unchecked(&mut out[702..739])?;
@@ -562,6 +622,7 @@ impl IsoSerialize for PrimaryVolumeDescriptor {
     self
       .bibliographic_file_identifier
       .serialize_unchecked(&mut out[776..813])?;
+
     self.creation_date.serialize_unchecked(&mut out[813..830])?;
     self
       .modification_date
@@ -572,6 +633,7 @@ impl IsoSerialize for PrimaryVolumeDescriptor {
     self
       .effective_date
       .serialize_unchecked(&mut out[864..881])?;
+
     out[881] = self.file_structure_version.into();
     out[882] = 0;
     out[883..1395].copy_from_slice(&self.application_use);

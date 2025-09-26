@@ -219,7 +219,7 @@ impl Into<u8> for ExtendedAttributeRecordVersion {
   }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum StandardIdentifier {
   /// Standard ISO 9660 identifier; "CD001"
   Cd001,
@@ -323,6 +323,9 @@ pub struct DigitsHour(pub(crate) u8);
 pub struct DigitsMinute(pub(crate) u8);
 
 #[derive(Debug)]
+pub struct DigitsHundreths(pub(crate) u8);
+
+#[derive(Debug)]
 pub struct DigitsSecond(pub(crate) u8);
 
 #[derive(Debug)]
@@ -354,18 +357,71 @@ pub struct DigitsDate {
   pub hour: DigitsHour,
   pub minute: DigitsMinute,
   pub second: DigitsSecond,
+  pub hundreths: DigitsHundreths,
   pub gmt_offset: NumericalGmtOffset,
+}
+
+#[cfg(feature = "chrono")]
+impl<Tz: chrono::TimeZone> From<chrono::DateTime<Tz>> for DigitsDate {
+  fn from(dt: chrono::DateTime<Tz>) -> Self {
+    use chrono::{Timelike, Datelike};
+
+    Self {
+      year: DigitsYear(dt.year() as u16),
+      month: DigitsMonth(dt.month() as u8),
+      day: DigitsDay(dt.day() as u8),
+      hour: DigitsHour(dt.hour() as u8),
+      minute: DigitsMinute(dt.minute() as u8),
+      second: DigitsSecond(dt.second() as u8),
+      hundreths: DigitsHundreths((dt.timestamp_subsec_millis() / 10) as u8),
+      // TODO(meowesque): Calculate this.
+      gmt_offset: NumericalGmtOffset(0)
+    }
+  }
+}
+
+#[cfg(feature = "chrono")]
+impl<Tz: chrono::TimeZone> Into<chrono::DateTime<Tz>> for DigitsDate {
+  fn into(self) -> chrono::DateTime<Tz> {
+    todo!()
+  }
 }
 
 #[derive(Debug)]
 pub struct NumericalDate {
-  pub year: NumericalYear,
+  pub years_since_1900: NumericalYear,
   pub month: NumericalMonth,
   pub day: NumericalDay,
   pub hour: NumericalHour,
   pub minute: NumericalMinute,
   pub second: NumericalSecond,
   pub gmt_offset: NumericalGmtOffset,
+}
+
+#[cfg(feature = "chrono")]
+impl<Tz: chrono::TimeZone> From<chrono::DateTime<Tz>> for NumericalDate {
+  fn from(dt: chrono::DateTime<Tz>) -> Self {
+    use chrono::{Datelike, Timelike};
+
+    Self {
+      years_since_1900: NumericalYear((dt.year().max(1900) - 1900) as u8),
+      month: NumericalMonth(dt.month() as u8),
+      day: NumericalDay(dt.day() as u8),
+      hour: NumericalHour(dt.hour() as u8),
+      minute: NumericalMinute(dt.minute() as u8),
+      second: NumericalSecond(dt.second() as u8),
+      // TODO(meowesque): Calculate this.
+      gmt_offset: NumericalGmtOffset(0),
+    }
+  }
+}
+
+
+#[cfg(feature = "chrono")]
+impl<Tz: chrono::TimeZone> Into<chrono::DateTime<Tz>> for NumericalDate {
+  fn into(self) -> chrono::DateTime<Tz> {
+    todo!()
+  }
 }
 
 #[derive(Debug)]
@@ -388,8 +444,8 @@ pub struct PrimaryVolumeDescriptor {
   pub publisher_identifier: ACharacters<128>,
   pub data_preparer_identifier: ACharacters<128>,
   pub application_identifier: ACharacters<128>,
-  pub copyright_file_identifier: DCharacters<38>, // Separator 1 and 2
-  pub abstract_file_identifier: DCharacters<36>,  // Separator 1 and 2
+  pub copyright_file_identifier: DCharacters<37>, // Separator 1 and 2
+  pub abstract_file_identifier: DCharacters<37>,  // Separator 1 and 2
   pub bibliographic_file_identifier: DCharacters<37>, // Separator 1 and 2
   pub creation_date: DigitsDate,
   pub modification_date: DigitsDate,
