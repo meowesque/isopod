@@ -15,7 +15,7 @@ pub trait EntryLike {
   }
 }
 
-pub trait DirectoryLike {
+pub trait DirectoryLike: EntryLike {
   fn entries_iter(&self) -> impl Iterator<Item = &Entry>; 
 
   fn entries_mut(&mut self) -> &mut Vec<Entry>;
@@ -40,6 +40,8 @@ pub trait DirectoryLike {
   }
 
   fn assign_extent_lbas(&mut self, allocator: &mut super::lba::LbaAllocator) {
+    self.set_extent_lba(allocator.allocate(self.descriptor().data_length));
+
     for entry in self.entries_mut() {
       entry.assign_extent_lba(allocator);
 
