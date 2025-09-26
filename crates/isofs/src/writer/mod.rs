@@ -45,7 +45,7 @@ impl IsoWriter {
     W: std::io::Write + std::io::Seek,
   {
     fn write_file_entry<W>(
-      mut writer: W,
+      mut writer: &mut W,
       file_entry: &fs::FileEntry,
       sector_size: u64,
     ) -> Result<(), error::Error>
@@ -57,13 +57,13 @@ impl IsoWriter {
       writer.seek(std::io::SeekFrom::Start(
         file_entry.extent_lba.unwrap() as u64 * sector_size,
       ))?;
-      std::io::copy(&mut reader, &mut writer)?;
+      std::io::copy(&mut reader, &mut *writer)?;
 
       Ok(())
     }
 
     fn write_directory_entry<W, D>(
-      mut writer: W,
+      mut writer: &mut W,
       directory_entry: &D,
       sector_size: u64,
     ) -> Result<(), error::Error>
@@ -72,7 +72,7 @@ impl IsoWriter {
       D: fs::DirectoryLike + fs::EntryLike,
     {
       let mut sector_writer = sector::SectorWriter::new(
-        &mut writer,
+        &mut *writer,
         directory_entry.extent_lba().unwrap() as u64,
         sector_size,
       );
@@ -91,14 +91,14 @@ impl IsoWriter {
       }
 
       for entry in directory_entry.entries_iter() {
-        write_entry(&mut writer, entry, sector_size)?;
+        write_entry(&mut *writer, entry, sector_size)?;
       }
 
       Ok(())
     }
 
     fn write_entry<W>(
-      writer: &mut W,
+      mut writer: &mut W,
       entry: &fs::Entry,
       sector_size: u64,
     ) -> Result<(), error::Error>
@@ -106,8 +106,8 @@ impl IsoWriter {
       W: std::io::Write + std::io::Seek,
     {
       match entry {
-        fs::Entry::File(file_entry) => write_file_entry(writer, file_entry, sector_size),
-        fs::Entry::Directory(dir_entry) => write_directory_entry(writer, dir_entry, sector_size),
+        fs::Entry::File(file_entry) => write_file_entry(&mut *writer, file_entry, sector_size),
+        fs::Entry::Directory(dir_entry) => write_directory_entry(&mut *writer, dir_entry, sector_size),
       }
     }
 
