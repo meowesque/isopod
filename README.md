@@ -6,8 +6,8 @@ A library for manipulating `.iso` files (ie. ISO 9660) and UDF filesystems.
 
 ## Features
 
-* `chrono` Enables conversion to/from [chrono](https://crates.io/crates/chrono) types.
-* `time` Enables conversion to/from [time](https://crates.io/crates/time) types. 
+* `chrono` Enables conversion with [chrono](https://crates.io/crates/chrono) types.
+* `time` Enables conversion with [time](https://crates.io/crates/time) types. 
 
 ## References
 
