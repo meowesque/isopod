@@ -160,18 +160,18 @@ impl IsoSerialize for VolumeFlags {
 
 impl<const LENGTH: usize> IsoSerialize for FileIdentifier<LENGTH> {
   fn extent(&self) -> usize {
-    self.0.len()
+    self.0.iter().position(|&b| b == 0).unwrap_or(self.0.len())
   }
 
   unsafe fn serialize_unchecked(&self, out: &mut [u8]) -> Result<()> {
-    out[..self.extent()].copy_from_slice(&self.0);
+    out[..self.extent()].copy_from_slice(&self.0[..self.extent()]);
     Ok(())
   }
 }
 
 impl<const LENGTH: usize> IsoSerialize for DirectoryIdentifier<LENGTH> {
   fn extent(&self) -> usize {
-    self.0.len()
+    self.0.iter().position(|&b| b == 0).unwrap_or(self.0.len())
   }
 
   unsafe fn serialize_unchecked(&self, out: &mut [u8]) -> Result<()> {
@@ -780,6 +780,7 @@ where
     out[27] = self.interleave_gap_size;
     out[28..30].copy_from_slice(&self.volume_sequence_number.to_le_bytes());
     out[30..32].copy_from_slice(&self.volume_sequence_number.to_be_bytes());
+    out[32] = self.file_identifier.extent() as u8;
     // TODO(meowesque): Check if this is right ?
     self
       .file_identifier
